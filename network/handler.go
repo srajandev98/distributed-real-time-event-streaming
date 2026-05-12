@@ -3,6 +3,7 @@ package network
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"real-time-event-streaming/broker"
@@ -56,22 +57,44 @@ func handleProduce(
 		"PRODUCE ",
 	)
 
-	parts := strings.SplitN(payload, ":", 2)
+	parts := strings.SplitN(
+		payload,
+		" ",
+		2,
+	)
 
 	if len(parts) != 2 {
 		fmt.Println("Invalid produce format")
 		return
 	}
 
-	topic := strings.TrimSpace(parts[0])
+	topic := parts[0]
 
-	message := strings.TrimSpace(parts[1])
+	messageParts := strings.SplitN(
+		parts[1],
+		":",
+		2,
+	)
 
-	offset := b.AddMessage(topic, message)
+	if len(messageParts) != 2 {
+		fmt.Println("Invalid key/message")
+		return
+	}
+
+	key := messageParts[0]
+
+	message := messageParts[1]
+
+	partition, offset := b.Produce(
+		topic,
+		key,
+		message,
+	)
 
 	fmt.Printf(
-		"Produced topic=%s offset=%d\n",
+		"Produced topic=%s partition=%d offset=%d\n",
 		topic,
+		partition,
 		offset,
 	)
 }
@@ -84,18 +107,32 @@ func handleConsume(
 
 	parts := strings.Split(data, " ")
 
-	if len(parts) != 3 {
+	if len(parts) != 4 {
+
 		conn.Write([]byte(
 			"Invalid consume format\n",
 		))
+
 		return
 	}
 
 	topic := parts[1]
 
-	offset := broker.ParseOffset(parts[2])
+	partition, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return
+	}
 
-	messages := b.Consume(topic, offset)
+	offset, err := strconv.Atoi(parts[3])
+	if err != nil {
+		return
+	}
+
+	messages := b.Consume(
+		topic,
+		partition,
+		offset,
+	)
 
 	for index, msg := range messages {
 

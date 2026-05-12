@@ -3,6 +3,7 @@ package broker
 import (
 	"bufio"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,15 +11,17 @@ import (
 	"sync"
 )
 
+const NumPartitions = 10
+
 type Broker struct {
-	topics map[string][]string
+	topics map[string]map[int][]string
 	mutex  sync.Mutex
 }
 
 func NewBroker() *Broker {
 
 	b := &Broker{
-		topics: make(map[string][]string),
+		topics: make(map[string]map[int][]string),
 	}
 
 	os.MkdirAll("data", os.ModePerm)
@@ -32,20 +35,38 @@ func (b *Broker) loadData() {
 
 	files, err := filepath.Glob("data/*.log")
 	if err != nil {
-		fmt.Println("Error loading data:", err)
+		fmt.Println("Load error:", err)
 		return
 	}
 
 	for _, filePath := range files {
 
-		topic := strings.TrimSuffix(
-			filepath.Base(filePath),
+		filename := filepath.Base(filePath)
+
+		filename = strings.TrimSuffix(
+			filename,
 			".log",
 		)
 
+		parts := strings.Split(filename, "-")
+
+		if len(parts) != 2 {
+			continue
+		}
+
+		topic := parts[0]
+
+		partition, err := strconv.Atoi(parts[1])
+		if err != nil {
+			continue
+		}
+
+		if _, exists := b.topics[topic]; !exists {
+			b.topics[topic] = make(map[int][]string)
+		}
+
 		file, err := os.Open(filePath)
 		if err != nil {
-			fmt.Println("File open error:", err)
 			continue
 		}
 
@@ -55,16 +76,20 @@ func (b *Broker) loadData() {
 
 			line := scanner.Text()
 
-			parts := strings.SplitN(line, ":", 2)
+			lineParts := strings.SplitN(
+				line,
+				":",
+				2,
+			)
 
-			if len(parts) != 2 {
+			if len(lineParts) != 2 {
 				continue
 			}
 
-			message := parts[1]
+			message := lineParts[1]
 
-			b.topics[topic] = append(
-				b.topics[topic],
+			b.topics[topic][partition] = append(
+				b.topics[topic][partition],
 				message,
 			)
 		}
@@ -72,19 +97,55 @@ func (b *Broker) loadData() {
 		file.Close()
 	}
 
-	fmt.Println("Data loaded from disk")
+	fmt.Println("Recovered logs from disk")
 }
 
-func (b *Broker) AddMessage(topic string, message string) int {
+func hashKey(key string) int {
+
+	hasher := fnv.New32a()
+
+	hasher.Write([]byte(key))
+
+	hashValue := hasher.Sum32()
+
+	return int(hashValue % NumPartitions)
+}
+
+func (b *Broker) Produce(
+	topic string,
+	key string,
+	message string,
+) (int, int) {
 
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 
-	offset := len(b.topics[topic])
+	partition := hashKey(key)
 
-	logLine := fmt.Sprintf("%d:%s\n", offset, message)
+	if _, exists := b.topics[topic]; !exists {
+		b.topics[topic] = make(map[int][]string)
+	}
 
-	filePath := filepath.Join("data", topic+".log")
+	offset := len(
+		b.topics[topic][partition],
+	)
+
+	logLine := fmt.Sprintf(
+		"%d:%s\n",
+		offset,
+		message,
+	)
+
+	fileName := fmt.Sprintf(
+		"%s-%d.log",
+		topic,
+		partition,
+	)
+
+	filePath := filepath.Join(
+		"data",
+		fileName,
+	)
 
 	file, err := os.OpenFile(
 		filePath,
@@ -93,53 +154,46 @@ func (b *Broker) AddMessage(topic string, message string) int {
 	)
 
 	if err != nil {
-		fmt.Println("File open error:", err)
-		return -1
+		fmt.Println("File error:", err)
+		return -1, -1
 	}
 
 	defer file.Close()
 
 	_, err = file.WriteString(logLine)
 	if err != nil {
-		fmt.Println("File write error:", err)
-		return -1
+		fmt.Println("Write error:", err)
+		return -1, -1
 	}
 
-	b.topics[topic] = append(
-		b.topics[topic],
+	b.topics[topic][partition] = append(
+		b.topics[topic][partition],
 		message,
 	)
 
-	return offset
+	return partition, offset
 }
 
 func (b *Broker) Consume(
 	topic string,
+	partition int,
 	offset int,
 ) []string {
 
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 
-	messages, exists := b.topics[topic]
+	topicPartitions, exists := b.topics[topic]
 
 	if !exists {
 		return []string{}
 	}
+
+	messages := topicPartitions[partition]
 
 	if offset >= len(messages) {
 		return []string{}
 	}
 
 	return messages[offset:]
-}
-
-func ParseOffset(value string) int {
-
-	offset, err := strconv.Atoi(value)
-	if err != nil {
-		return 0
-	}
-
-	return offset
 }
