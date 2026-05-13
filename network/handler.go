@@ -7,11 +7,13 @@ import (
 	"strings"
 
 	"real-time-event-streaming/broker"
+	"real-time-event-streaming/group"
 )
 
 func HandleConnection(
 	conn net.Conn,
 	b *broker.Broker,
+	gm *group.GroupManager,
 ) {
 
 	defer conn.Close()
@@ -38,6 +40,10 @@ func HandleConnection(
 
 			handleConsume(data, conn, b)
 
+		} else if strings.HasPrefix(data, "JOIN ") {
+
+			handleJoin(data, conn, gm)
+
 		} else {
 
 			conn.Write([]byte(
@@ -45,6 +51,43 @@ func HandleConnection(
 			))
 		}
 	}
+}
+
+func handleJoin(
+	data string,
+	conn net.Conn,
+	gm *group.GroupManager,
+) {
+
+	parts := strings.Split(data, " ")
+
+	if len(parts) != 4 {
+
+		conn.Write([]byte(
+			"Invalid JOIN format\n",
+		))
+
+		return
+	}
+
+	groupName := parts[1]
+
+	topic := parts[2]
+
+	consumerID := parts[3]
+
+	partitions := gm.JoinGroup(
+		groupName,
+		topic,
+		consumerID,
+	)
+
+	response := fmt.Sprintf(
+		"ASSIGNED %v\n",
+		partitions,
+	)
+
+	conn.Write([]byte(response))
 }
 
 func handleProduce(
@@ -64,7 +107,6 @@ func handleProduce(
 	)
 
 	if len(parts) != 2 {
-		fmt.Println("Invalid produce format")
 		return
 	}
 
@@ -77,7 +119,6 @@ func handleProduce(
 	)
 
 	if len(messageParts) != 2 {
-		fmt.Println("Invalid key/message")
 		return
 	}
 
@@ -108,22 +149,23 @@ func handleConsume(
 	parts := strings.Split(data, " ")
 
 	if len(parts) != 4 {
-
-		conn.Write([]byte(
-			"Invalid consume format\n",
-		))
-
 		return
 	}
 
 	topic := parts[1]
 
-	partition, err := strconv.Atoi(parts[2])
+	partition, err := strconv.Atoi(
+		parts[2],
+	)
+
 	if err != nil {
 		return
 	}
 
-	offset, err := strconv.Atoi(parts[3])
+	offset, err := strconv.Atoi(
+		parts[3],
+	)
+
 	if err != nil {
 		return
 	}
