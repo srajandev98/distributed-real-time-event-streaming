@@ -12,6 +12,7 @@ import (
 )
 
 const NumPartitions = 10
+const ReplicationFactor = 3
 
 type Broker struct {
 	topics map[string]map[int][]string
@@ -48,7 +49,18 @@ func (b *Broker) loadData() {
 			".log",
 		)
 
-		parts := strings.Split(filename, "-")
+		if strings.Contains(
+			filename,
+			"replica",
+		) {
+
+			continue
+		}
+
+		parts := strings.Split(
+			filename,
+			"-",
+		)
 
 		if len(parts) != 2 {
 			continue
@@ -166,12 +178,66 @@ func (b *Broker) Produce(
 		return -1, -1
 	}
 
+	for replica := 1; replica < ReplicationFactor; replica++ {
+
+		replicaFileName := fmt.Sprintf(
+			"%s-%d-replica-%d.log",
+			topic,
+			partition,
+			replica,
+		)
+
+		replicaPath := filepath.Join(
+			"data",
+			replicaFileName,
+		)
+
+		writeReplica(
+			replicaPath,
+			logLine,
+		)
+	}
+
 	b.topics[topic][partition] = append(
 		b.topics[topic][partition],
 		message,
 	)
 
 	return partition, offset
+}
+
+func writeReplica(
+	filePath string,
+	logLine string,
+) {
+
+	file, err := os.OpenFile(
+		filePath,
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+		0644,
+	)
+
+	if err != nil {
+
+		fmt.Println(
+			"Replica file error:",
+			err,
+		)
+
+		return
+	}
+
+	defer file.Close()
+
+	_, err = file.WriteString(logLine)
+
+	if err != nil {
+
+		fmt.Println(
+			"Replica write error:",
+			err,
+		)
+	}
 }
 
 func (b *Broker) Consume(
