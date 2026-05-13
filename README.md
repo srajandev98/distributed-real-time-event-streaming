@@ -2,96 +2,95 @@
 
 A lightweight distributed event streaming platform written in Go.
 
-This project is an educational-but-production-oriented implementation of a distributed log system inspired by modern streaming platforms such as:
+`real-time-event-streaming` is a distributed log-based messaging and event streaming system inspired by modern streaming platforms such as:
 - Apache Kafka
 - Redpanda
 - Apache Pulsar
 - NATS
 
-The goal of the project is to incrementally evolve from a minimal log-based broker into a production-grade distributed streaming system while keeping the implementation understandable and approachable.
+The project focuses on building a production-oriented streaming architecture incrementally while keeping the internals understandable, modular, and maintainable.
 
 ---
 
 # Vision
 
-This project aims to explore and implement the core architectural primitives behind modern event streaming systems:
+The goal of this project is to deeply explore the architecture and internals of distributed event streaming systems by building one from scratch.
 
-- append-only logs
+The system is evolving toward:
+- durable append-only storage
 - partition-based scalability
-- durable storage
 - consumer coordination
-- offset management
 - replication
 - fault tolerance
-- distributed consensus
-- stream processing foundations
+- distributed metadata management
+- production-grade architecture
 
-The project prioritizes:
-- architectural clarity
+The implementation prioritizes:
+- clean subsystem boundaries
+- maintainable architecture
 - incremental evolution
-- production-grade design principles
-- systems programming fundamentals
+- correctness
+- distributed systems fundamentals
 
 ---
 
 # Current Status
 
-⚠️ This project is currently in active development and is not production-ready.
+⚠️ The project is currently under active development and is not yet production-ready.
 
-Implemented features represent the foundational building blocks of a distributed log broker.
+The current implementation already includes the foundational building blocks of a distributed streaming platform.
 
 ---
 
 # Implemented Features
 
-## Networking
-- TCP-based broker server
+## Broker Server
+- TCP-based broker
 - concurrent client handling using goroutines
-- simple text-based protocol
+- connection-oriented request processing
 
 ---
 
-## Persistent Storage
-- append-only log files
-- durable message persistence
-- automatic log recovery on restart
+## Durable Storage
+- append-only logs
+- file-based persistence
+- automatic recovery after restart
 
 ---
 
 ## Topic Partitioning
-- multi-partition topics
-- key-based partition routing
-- deterministic hashing
+- multiple partitions per topic
+- deterministic key-based routing
 - partition-local ordering guarantees
 
 ---
 
-## Producers
+## Producer API
 - message publishing
 - automatic partition assignment
-- per-partition offsets
+- partition-specific offsets
 
 ---
 
-## Consumers
-- offset-based message consumption
+## Consumer API
+- offset-based consumption
+- replay support
 - partition-specific reads
-- replay capability
 
 ---
 
 ## Consumer Groups
 - group membership
-- round-robin partition assignment
+- partition assignment
+- round-robin balancing
 - partition ownership model
-- basic rebalancing
 
 ---
 
 ## Offset Management
-- durable offset commits
-- persistent consumer progress tracking
-- offset recovery after restart
+- persistent offset commits
+- consumer progress tracking
+- recovery after restart
 
 ---
 
@@ -102,7 +101,7 @@ Implemented features represent the foundational building blocks of a distributed
 
 ---
 
-# Architecture Overview
+# High-Level Architecture
 
 ```text
                     ┌──────────────────┐
@@ -132,11 +131,108 @@ Implemented features represent the foundational building blocks of a distributed
 
 ---
 
+# Architecture Overview
+
+The codebase is organized around subsystem boundaries rather than feature grouping.
+
+```text
+real-time-event-streaming/
+│
+├── cmd/
+│   └── broker/
+│       └── main.go
+│
+├── internal/
+│   │
+│   ├── broker/
+│   │   └── broker.go
+│   │
+│   ├── storage/
+│   │   └── storage.go
+│   │
+│   ├── coordinator/
+│   │   ├── coordinator.go
+│   │   ├── group.go
+│   │   └── offset.go
+│   │
+│   ├── network/
+│   │   └── handler.go
+│   │
+│   ├── replication/
+│   │
+│   ├── protocol/
+│   │
+│   ├── config/
+│   │
+│   └── types/
+│       └── message.go
+│
+├── data/
+│
+├── README.md
+│
+└── go.mod
+```
+
+---
+
+# Subsystem Responsibilities
+
+## broker/
+Orchestrates all major subsystems.
+
+Acts as the composition root of the application.
+
+---
+
+## storage/
+Responsible for:
+- append-only logs
+- partitions
+- disk persistence
+- recovery
+
+---
+
+## coordinator/
+Responsible for:
+- consumer groups
+- partition assignment
+- offsets
+- rebalancing
+
+---
+
+## network/
+Responsible for:
+- TCP connections
+- request handling
+- protocol routing
+
+---
+
+## replication/
+Reserved for:
+- ISR tracking
+- acknowledgements
+- replica synchronization
+- leader election
+
+---
+
+## protocol/
+Reserved for:
+- serialization
+- request framing
+- binary wire protocol
+
+---
+
 # Storage Model
 
-This project uses an append-only log architecture.
+Each partition is backed by a dedicated append-only log file.
 
-Each partition is backed by a dedicated log file:
+Example:
 
 ```text
 data/orders-0.log
@@ -144,14 +240,14 @@ data/orders-1.log
 data/orders-2.log
 ```
 
-Replica logs are stored separately:
+Replica logs are stored independently:
 
 ```text
 data/orders-0-replica-1.log
 data/orders-0-replica-2.log
 ```
 
-Offsets are persisted independently:
+Offsets are persisted separately:
 
 ```text
 data/offsets.json
@@ -161,9 +257,9 @@ data/offsets.json
 
 # Partitioning Model
 
-Messages are routed to partitions using deterministic hashing.
+Messages are routed using deterministic hashing.
 
-Messages sharing the same key are always routed to the same partition.
+Messages sharing the same key always go to the same partition.
 
 Example:
 
@@ -173,7 +269,7 @@ user1 -> partition 2
 user1 -> partition 2
 ```
 
-This guarantees ordering per key.
+This preserves ordering guarantees per key.
 
 ---
 
@@ -189,8 +285,8 @@ consumer-b -> partitions [1]
 ```
 
 This enables:
+- parallel consumption
 - horizontal scaling
-- parallel processing
 - work distribution without duplication
 
 ---
@@ -201,15 +297,15 @@ Each partition maintains:
 - one leader log
 - multiple replica logs
 
-Current implementation uses:
+Current implementation:
 - synchronous local replication
 - file-based replicas
 
-Planned future implementation:
-- network-based replication
-- replica synchronization
-- leader election
+Planned implementation:
+- network replication
 - ISR tracking
+- acknowledgement quorum
+- leader election
 
 ---
 
@@ -279,6 +375,12 @@ ASSIGNED [0 2]
 COMMIT analytics orders 1 42
 ```
 
+### Response
+
+```text
+COMMIT OK
+```
+
 ---
 
 ## Fetch Offset
@@ -297,31 +399,6 @@ OFFSET analytics orders 1
 
 ---
 
-# Project Structure
-
-```text
-real-time-event-streaming/
-│
-├── go.mod
-├── main.go
-│
-├── broker/
-│   └── broker.go
-│
-├── group/
-│   └── group.go
-│
-├── offset/
-│   └── offset.go
-│
-├── network/
-│   └── handler.go
-│
-└── data/
-```
-
----
-
 # Running Locally
 
 ## Requirements
@@ -333,13 +410,13 @@ real-time-event-streaming/
 ## Start Broker
 
 ```bash
-go run .
+go run ./cmd/broker
 ```
 
 Expected output:
 
 ```text
-Mini Kafka Broker listening on port 9092
+real-time-event-streaming broker listening on port 9092
 ```
 
 ---
@@ -379,84 +456,90 @@ CONSUME orders 2 0
 # Design Principles
 
 ## Append-Only Storage
-
 Messages are immutable and only appended to logs.
 
 ---
 
 ## Partition-Based Scalability
-
 Partitions are the fundamental scalability unit.
 
 ---
 
 ## Ordering Guarantees
-
 Ordering is guaranteed per partition.
 
 ---
 
 ## Durable Persistence
-
 Logs and offsets survive broker restarts.
 
 ---
 
 ## Explicit Coordination
-
 Consumer ownership and partition assignment are coordinated explicitly.
+
+---
+
+## Subsystem Isolation
+Each subsystem owns a clearly defined responsibility boundary.
 
 ---
 
 # Current Limitations
 
-The current implementation is intentionally simplified.
+The current implementation intentionally keeps many distributed systems concerns simplified.
 
 Not yet implemented:
-
 - multi-node clustering
-- distributed replication
-- leader election
+- network replication
+- ISR tracking
 - replication acknowledgements
-- ISR (in-sync replicas)
+- leader election
 - batching
 - compression
 - retention policies
 - segment files
 - indexed reads
-- binary protocol
+- binary wire protocol
 - authentication
 - authorization
 - metrics
 - observability
 - backpressure
 - exactly-once semantics
-- Raft-based metadata coordination
+- metadata quorum management
 
 ---
 
 # Roadmap
 
-## Storage Engine
-- segment files
-- sparse indexes
-- retention policies
-- compaction
-
----
-
 ## Replication
-- network replication
+- acknowledgement quorum
 - ISR tracking
-- acknowledgements
+- replica synchronization
 - leader election
 
 ---
 
-## Broker Coordination
+## Storage Engine
+- segment files
+- sparse indexes
+- retention policies
+- log compaction
+
+---
+
+## Networking
+- binary wire protocol
+- request framing
+- protocol versioning
+
+---
+
+## Distributed Coordination
 - metadata quorum
+- broker discovery
 - distributed consensus
-- controller nodes
 
 ---
 
@@ -468,29 +551,22 @@ Not yet implemented:
 
 ---
 
-## Protocol
-- binary wire protocol
-- schema support
-- producer acknowledgements
-
----
-
-## Operations
+## Observability
 - metrics
-- observability
-- health checks
 - tracing
+- health checks
+- structured logging
 
 ---
 
 # Why This Project Exists
 
-Modern distributed streaming systems are often difficult to understand internally because of their scale and complexity.
+Modern distributed streaming systems are often difficult to understand internally because of their scale and operational complexity.
 
 This project exists to:
 - make distributed log internals understandable
-- explore production-grade architecture incrementally
-- provide a readable Go implementation of streaming system fundamentals
+- incrementally build production-grade streaming primitives
+- provide a readable Go implementation of distributed systems concepts
 
 ---
 
@@ -498,24 +574,13 @@ This project exists to:
 
 Contributions, discussions, and architectural feedback are welcome.
 
-Areas of interest include:
+Areas of interest:
 - distributed systems
 - storage engines
 - replication protocols
 - consensus algorithms
-- streaming architectures
+- stream processing
 - Go systems programming
-
----
-
-# Inspiration
-
-Inspired by:
-- Apache Kafka
-- Redpanda
-- Apache Pulsar
-- NATS
-- distributed log architectures
 
 ---
 

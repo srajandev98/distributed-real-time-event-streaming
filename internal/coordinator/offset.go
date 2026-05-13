@@ -1,4 +1,4 @@
-package offset
+package coordinator
 
 import (
 	"encoding/json"
@@ -88,6 +88,7 @@ func (om *OffsetManager) save() {
 	)
 
 	if err != nil {
+
 		fmt.Println(
 			"Offset save error:",
 			err,

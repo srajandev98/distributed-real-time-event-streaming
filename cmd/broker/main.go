@@ -4,19 +4,13 @@ import (
 	"fmt"
 	"net"
 
-	"real-time-event-streaming/broker"
-	"real-time-event-streaming/group"
-	"real-time-event-streaming/network"
-	"real-time-event-streaming/offset"
+	"real-time-event-streaming/internal/broker"
+	"real-time-event-streaming/internal/network"
 )
 
 func main() {
 
 	b := broker.NewBroker()
-
-	gm := group.NewGroupManager()
-
-	om := offset.NewOffsetManager()
 
 	listener, err := net.Listen(
 		"tcp",
@@ -34,6 +28,7 @@ func main() {
 	for {
 
 		conn, err := listener.Accept()
+
 		if err != nil {
 
 			fmt.Println(
@@ -47,8 +42,6 @@ func main() {
 		go network.HandleConnection(
 			conn,
 			b,
-			gm,
-			om,
 		)
 	}
 }

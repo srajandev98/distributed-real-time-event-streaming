@@ -6,16 +6,12 @@ import (
 	"strconv"
 	"strings"
 
-	"real-time-event-streaming/broker"
-	"real-time-event-streaming/group"
-	"real-time-event-streaming/offset"
+	"real-time-event-streaming/internal/broker"
 )
 
 func HandleConnection(
 	conn net.Conn,
 	b *broker.Broker,
-	gm *group.GroupManager,
-	om *offset.OffsetManager,
 ) {
 
 	defer conn.Close()
@@ -25,8 +21,13 @@ func HandleConnection(
 	for {
 
 		n, err := conn.Read(buffer)
+
 		if err != nil {
-			fmt.Println("Client disconnected")
+
+			fmt.Println(
+				"Client disconnected",
+			)
+
 			return
 		}
 
@@ -44,15 +45,15 @@ func HandleConnection(
 
 		} else if strings.HasPrefix(data, "JOIN ") {
 
-			handleJoin(data, conn, gm)
+			handleJoin(data, conn, b)
 
 		} else if strings.HasPrefix(data, "COMMIT ") {
 
-			handleCommit(data, conn, om)
+			handleCommit(data, conn, b)
 
 		} else if strings.HasPrefix(data, "OFFSET ") {
 
-			handleOffset(data, conn, om)
+			handleOffset(data, conn, b)
 
 		} else {
 
@@ -61,43 +62,6 @@ func HandleConnection(
 			))
 		}
 	}
-}
-
-func handleJoin(
-	data string,
-	conn net.Conn,
-	gm *group.GroupManager,
-) {
-
-	parts := strings.Split(data, " ")
-
-	if len(parts) != 4 {
-
-		conn.Write([]byte(
-			"Invalid JOIN format\n",
-		))
-
-		return
-	}
-
-	groupName := parts[1]
-
-	topic := parts[2]
-
-	consumerID := parts[3]
-
-	partitions := gm.JoinGroup(
-		groupName,
-		topic,
-		consumerID,
-	)
-
-	response := fmt.Sprintf(
-		"ASSIGNED %v\n",
-		partitions,
-	)
-
-	conn.Write([]byte(response))
 }
 
 func handleProduce(
@@ -117,11 +81,6 @@ func handleProduce(
 	)
 
 	if len(parts) != 2 {
-
-		fmt.Println(
-			"Invalid produce format",
-		)
-
 		return
 	}
 
@@ -134,23 +93,19 @@ func handleProduce(
 	)
 
 	if len(messageParts) != 2 {
-
-		fmt.Println(
-			"Invalid key/message",
-		)
-
 		return
 	}
 
 	key := messageParts[0]
 
-	message := messageParts[1]
+	value := messageParts[1]
 
-	partition, offset := b.Produce(
-		topic,
-		key,
-		message,
-	)
+	partition, offset :=
+		b.Storage.Produce(
+			topic,
+			key,
+			value,
+		)
 
 	fmt.Printf(
 		"Produced topic=%s partition=%d offset=%d\n",
@@ -169,64 +124,46 @@ func handleConsume(
 	parts := strings.Split(data, " ")
 
 	if len(parts) != 4 {
-
-		conn.Write([]byte(
-			"Invalid consume format\n",
-		))
-
 		return
 	}
 
 	topic := parts[1]
 
-	partition, err := strconv.Atoi(
+	partition, _ := strconv.Atoi(
 		parts[2],
 	)
 
-	if err != nil {
-		return
-	}
-
-	offsetValue, err := strconv.Atoi(
+	offset, _ := strconv.Atoi(
 		parts[3],
 	)
 
-	if err != nil {
-		return
-	}
-
-	messages := b.Consume(
+	messages := b.Storage.Consume(
 		topic,
 		partition,
-		offsetValue,
+		offset,
 	)
 
-	for index, msg := range messages {
+	for _, msg := range messages {
 
 		line := fmt.Sprintf(
 			"%d:%s\n",
-			offsetValue+index,
-			msg,
+			msg.Offset,
+			msg.Value,
 		)
 
 		conn.Write([]byte(line))
 	}
 }
 
-func handleCommit(
+func handleJoin(
 	data string,
 	conn net.Conn,
-	om *offset.OffsetManager,
+	b *broker.Broker,
 ) {
 
 	parts := strings.Split(data, " ")
 
-	if len(parts) != 5 {
-
-		conn.Write([]byte(
-			"Invalid commit format\n",
-		))
-
+	if len(parts) != 4 {
 		return
 	}
 
@@ -234,28 +171,57 @@ func handleCommit(
 
 	topic := parts[2]
 
-	partition, err := strconv.Atoi(
+	consumerID := parts[3]
+
+	partitions :=
+		b.Coordinator.
+			GroupManager.
+			JoinGroup(
+				groupName,
+				topic,
+				consumerID,
+			)
+
+	response := fmt.Sprintf(
+		"ASSIGNED %v\n",
+		partitions,
+	)
+
+	conn.Write([]byte(response))
+}
+
+func handleCommit(
+	data string,
+	conn net.Conn,
+	b *broker.Broker,
+) {
+
+	parts := strings.Split(data, " ")
+
+	if len(parts) != 5 {
+		return
+	}
+
+	groupName := parts[1]
+
+	topic := parts[2]
+
+	partition, _ := strconv.Atoi(
 		parts[3],
 	)
 
-	if err != nil {
-		return
-	}
-
-	offsetValue, err := strconv.Atoi(
+	offset, _ := strconv.Atoi(
 		parts[4],
 	)
 
-	if err != nil {
-		return
-	}
-
-	om.Commit(
-		groupName,
-		topic,
-		partition,
-		offsetValue,
-	)
+	b.Coordinator.
+		OffsetManager.
+		Commit(
+			groupName,
+			topic,
+			partition,
+			offset,
+		)
 
 	conn.Write([]byte(
 		"COMMIT OK\n",
@@ -265,17 +231,12 @@ func handleCommit(
 func handleOffset(
 	data string,
 	conn net.Conn,
-	om *offset.OffsetManager,
+	b *broker.Broker,
 ) {
 
 	parts := strings.Split(data, " ")
 
 	if len(parts) != 4 {
-
-		conn.Write([]byte(
-			"Invalid offset format\n",
-		))
-
 		return
 	}
 
@@ -283,23 +244,22 @@ func handleOffset(
 
 	topic := parts[2]
 
-	partition, err := strconv.Atoi(
+	partition, _ := strconv.Atoi(
 		parts[3],
 	)
 
-	if err != nil {
-		return
-	}
-
-	offsetValue := om.GetOffset(
-		groupName,
-		topic,
-		partition,
-	)
+	offset :=
+		b.Coordinator.
+			OffsetManager.
+			GetOffset(
+				groupName,
+				topic,
+				partition,
+			)
 
 	response := fmt.Sprintf(
 		"%d\n",
-		offsetValue,
+		offset,
 	)
 
 	conn.Write([]byte(response))
