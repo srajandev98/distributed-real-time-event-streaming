@@ -8,12 +8,14 @@ import (
 
 	"real-time-event-streaming/broker"
 	"real-time-event-streaming/group"
+	"real-time-event-streaming/offset"
 )
 
 func HandleConnection(
 	conn net.Conn,
 	b *broker.Broker,
 	gm *group.GroupManager,
+	om *offset.OffsetManager,
 ) {
 
 	defer conn.Close()
@@ -43,6 +45,14 @@ func HandleConnection(
 		} else if strings.HasPrefix(data, "JOIN ") {
 
 			handleJoin(data, conn, gm)
+
+		} else if strings.HasPrefix(data, "COMMIT ") {
+
+			handleCommit(data, conn, om)
+
+		} else if strings.HasPrefix(data, "OFFSET ") {
+
+			handleOffset(data, conn, om)
 
 		} else {
 
@@ -107,6 +117,11 @@ func handleProduce(
 	)
 
 	if len(parts) != 2 {
+
+		fmt.Println(
+			"Invalid produce format",
+		)
+
 		return
 	}
 
@@ -119,6 +134,11 @@ func handleProduce(
 	)
 
 	if len(messageParts) != 2 {
+
+		fmt.Println(
+			"Invalid key/message",
+		)
+
 		return
 	}
 
@@ -149,6 +169,11 @@ func handleConsume(
 	parts := strings.Split(data, " ")
 
 	if len(parts) != 4 {
+
+		conn.Write([]byte(
+			"Invalid consume format\n",
+		))
+
 		return
 	}
 
@@ -162,7 +187,7 @@ func handleConsume(
 		return
 	}
 
-	offset, err := strconv.Atoi(
+	offsetValue, err := strconv.Atoi(
 		parts[3],
 	)
 
@@ -173,17 +198,109 @@ func handleConsume(
 	messages := b.Consume(
 		topic,
 		partition,
-		offset,
+		offsetValue,
 	)
 
 	for index, msg := range messages {
 
 		line := fmt.Sprintf(
 			"%d:%s\n",
-			offset+index,
+			offsetValue+index,
 			msg,
 		)
 
 		conn.Write([]byte(line))
 	}
+}
+
+func handleCommit(
+	data string,
+	conn net.Conn,
+	om *offset.OffsetManager,
+) {
+
+	parts := strings.Split(data, " ")
+
+	if len(parts) != 5 {
+
+		conn.Write([]byte(
+			"Invalid commit format\n",
+		))
+
+		return
+	}
+
+	groupName := parts[1]
+
+	topic := parts[2]
+
+	partition, err := strconv.Atoi(
+		parts[3],
+	)
+
+	if err != nil {
+		return
+	}
+
+	offsetValue, err := strconv.Atoi(
+		parts[4],
+	)
+
+	if err != nil {
+		return
+	}
+
+	om.Commit(
+		groupName,
+		topic,
+		partition,
+		offsetValue,
+	)
+
+	conn.Write([]byte(
+		"COMMIT OK\n",
+	))
+}
+
+func handleOffset(
+	data string,
+	conn net.Conn,
+	om *offset.OffsetManager,
+) {
+
+	parts := strings.Split(data, " ")
+
+	if len(parts) != 4 {
+
+		conn.Write([]byte(
+			"Invalid offset format\n",
+		))
+
+		return
+	}
+
+	groupName := parts[1]
+
+	topic := parts[2]
+
+	partition, err := strconv.Atoi(
+		parts[3],
+	)
+
+	if err != nil {
+		return
+	}
+
+	offsetValue := om.GetOffset(
+		groupName,
+		topic,
+		partition,
+	)
+
+	response := fmt.Sprintf(
+		"%d\n",
+		offsetValue,
+	)
+
+	conn.Write([]byte(response))
 }

@@ -7,6 +7,7 @@ import (
 	"real-time-event-streaming/broker"
 	"real-time-event-streaming/group"
 	"real-time-event-streaming/network"
+	"real-time-event-streaming/offset"
 )
 
 func main() {
@@ -14,6 +15,8 @@ func main() {
 	b := broker.NewBroker()
 
 	gm := group.NewGroupManager()
+
+	om := offset.NewOffsetManager()
 
 	listener, err := net.Listen(
 		"tcp",
@@ -32,21 +35,20 @@ func main() {
 
 		conn, err := listener.Accept()
 		if err != nil {
+
 			fmt.Println(
 				"Connection error:",
 				err,
 			)
+
 			continue
 		}
-
-		fmt.Println(
-			"New client connected",
-		)
 
 		go network.HandleConnection(
 			conn,
 			b,
 			gm,
+			om,
 		)
 	}
 }
