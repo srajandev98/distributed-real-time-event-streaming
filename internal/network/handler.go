@@ -1,266 +1,145 @@
 package network
 
 import (
+	"bufio"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 
 	"real-time-event-streaming/internal/broker"
+	"real-time-event-streaming/internal/protocol"
 )
 
-func HandleConnection(
-	conn net.Conn,
-	b *broker.Broker,
-) {
-
+func HandleConnection(conn net.Conn, b *broker.Broker) {
 	defer conn.Close()
 
-	buffer := make([]byte, 1024)
-
-	for {
-
-		n, err := conn.Read(buffer)
-
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		line := scanner.Text()
+		req, err := protocol.ParseRequest(line)
 		if err != nil {
-
-			fmt.Println(
-				"Client disconnected",
-			)
-
-			return
+			conn.Write([]byte(protocol.Err("0", "BAD_REQUEST", err.Error())))
+			continue
 		}
 
-		data := strings.TrimSpace(
-			string(buffer[:n]),
-		)
+		response := handleRequest(req, b)
+		conn.Write([]byte(response))
+	}
 
-		if strings.HasPrefix(data, "PRODUCE ") {
-
-			handleProduce(data, b)
-
-		} else if strings.HasPrefix(data, "CONSUME ") {
-
-			handleConsume(data, conn, b)
-
-		} else if strings.HasPrefix(data, "JOIN ") {
-
-			handleJoin(data, conn, b)
-
-		} else if strings.HasPrefix(data, "COMMIT ") {
-
-			handleCommit(data, conn, b)
-
-		} else if strings.HasPrefix(data, "OFFSET ") {
-
-			handleOffset(data, conn, b)
-
-		} else {
-
-			conn.Write([]byte(
-				"Invalid command\n",
-			))
-		}
+	if err := scanner.Err(); err != nil {
+		fmt.Println("Client disconnected:", err)
 	}
 }
 
-func handleProduce(
-	data string,
-	b *broker.Broker,
-) {
+func handleRequest(req *protocol.Request, b *broker.Broker) string {
+	switch req.Command {
+	case "PRODUCE":
+		return handleProduce(req, b)
+	case "CONSUME":
+		return handleConsume(req, b)
+	case "JOIN":
+		return handleJoin(req, b)
+	case "COMMIT":
+		return handleCommit(req, b)
+	case "OFFSET":
+		return handleOffset(req, b)
+	default:
+		return protocol.Err(req.CorrelationID, "UNKNOWN_COMMAND", "unsupported command")
+	}
+}
 
-	payload := strings.TrimPrefix(
-		data,
-		"PRODUCE ",
-	)
-
-	parts := strings.SplitN(
-		payload,
-		" ",
-		2,
-	)
-
-	if len(parts) != 2 {
-		return
+func handleProduce(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) < 2 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "PRODUCE requires: <topic> <key>:<value>")
 	}
 
-	topic := parts[0]
-
-	messageParts := strings.SplitN(
-		parts[1],
-		":",
-		2,
-	)
-
+	topic := req.Args[0]
+	messageParts := strings.SplitN(req.Args[1], ":", 2)
 	if len(messageParts) != 2 {
-		return
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "message must be key:value")
 	}
 
 	key := messageParts[0]
-
 	value := messageParts[1]
+	partition, offset := b.Storage.Produce(topic, key, value)
 
-	partition, offset :=
-		b.Storage.Produce(
-			topic,
-			key,
-			value,
-		)
-
-	fmt.Printf(
-		"Produced topic=%s partition=%d offset=%d\n",
-		topic,
-		partition,
-		offset,
-	)
+	payload := fmt.Sprintf("partition=%d offset=%d", partition, offset)
+	return protocol.Ok(req.CorrelationID, payload)
 }
 
-func handleConsume(
-	data string,
-	conn net.Conn,
-	b *broker.Broker,
-) {
-
-	parts := strings.Split(data, " ")
-
-	if len(parts) != 4 {
-		return
+func handleConsume(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 3 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "CONSUME requires: <topic> <partition> <offset>")
 	}
 
-	topic := parts[1]
+	topic := req.Args[0]
+	partition, err := protocol.ParseInt(req.Args[1], "partition")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	offset, err := protocol.ParseInt(req.Args[2], "offset")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
 
-	partition, _ := strconv.Atoi(
-		parts[2],
-	)
+	messages := b.Storage.Consume(topic, partition, offset)
+	if len(messages) == 0 {
+		return protocol.Ok(req.CorrelationID, "messages=")
+	}
 
-	offset, _ := strconv.Atoi(
-		parts[3],
-	)
-
-	messages := b.Storage.Consume(
-		topic,
-		partition,
-		offset,
-	)
-
+	items := make([]string, 0, len(messages))
 	for _, msg := range messages {
-
-		line := fmt.Sprintf(
-			"%d:%s\n",
-			msg.Offset,
-			msg.Value,
-		)
-
-		conn.Write([]byte(line))
+		items = append(items, fmt.Sprintf("%d:%s", msg.Offset, msg.Value))
 	}
+
+	return protocol.Ok(req.CorrelationID, "messages="+strings.Join(items, ","))
 }
 
-func handleJoin(
-	data string,
-	conn net.Conn,
-	b *broker.Broker,
-) {
-
-	parts := strings.Split(data, " ")
-
-	if len(parts) != 4 {
-		return
+func handleJoin(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 3 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "JOIN requires: <group> <topic> <consumer_id>")
 	}
 
-	groupName := parts[1]
+	groupName := req.Args[0]
+	topic := req.Args[1]
+	consumerID := req.Args[2]
 
-	topic := parts[2]
-
-	consumerID := parts[3]
-
-	partitions :=
-		b.Coordinator.
-			GroupManager.
-			JoinGroup(
-				groupName,
-				topic,
-				consumerID,
-			)
-
-	response := fmt.Sprintf(
-		"ASSIGNED %v\n",
-		partitions,
-	)
-
-	conn.Write([]byte(response))
+	partitions := b.Coordinator.GroupManager.JoinGroup(groupName, topic, consumerID)
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("assigned=%v", partitions))
 }
 
-func handleCommit(
-	data string,
-	conn net.Conn,
-	b *broker.Broker,
-) {
-
-	parts := strings.Split(data, " ")
-
-	if len(parts) != 5 {
-		return
+func handleCommit(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 4 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "COMMIT requires: <group> <topic> <partition> <offset>")
 	}
 
-	groupName := parts[1]
+	groupName := req.Args[0]
+	topic := req.Args[1]
+	partition, err := protocol.ParseInt(req.Args[2], "partition")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	offset, err := protocol.ParseInt(req.Args[3], "offset")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
 
-	topic := parts[2]
-
-	partition, _ := strconv.Atoi(
-		parts[3],
-	)
-
-	offset, _ := strconv.Atoi(
-		parts[4],
-	)
-
-	b.Coordinator.
-		OffsetManager.
-		Commit(
-			groupName,
-			topic,
-			partition,
-			offset,
-		)
-
-	conn.Write([]byte(
-		"COMMIT OK\n",
-	))
+	b.Coordinator.OffsetManager.Commit(groupName, topic, partition, offset)
+	return protocol.Ok(req.CorrelationID, "committed=true")
 }
 
-func handleOffset(
-	data string,
-	conn net.Conn,
-	b *broker.Broker,
-) {
-
-	parts := strings.Split(data, " ")
-
-	if len(parts) != 4 {
-		return
+func handleOffset(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 3 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "OFFSET requires: <group> <topic> <partition>")
 	}
 
-	groupName := parts[1]
+	groupName := req.Args[0]
+	topic := req.Args[1]
+	partition, err := protocol.ParseInt(req.Args[2], "partition")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
 
-	topic := parts[2]
-
-	partition, _ := strconv.Atoi(
-		parts[3],
-	)
-
-	offset :=
-		b.Coordinator.
-			OffsetManager.
-			GetOffset(
-				groupName,
-				topic,
-				partition,
-			)
-
-	response := fmt.Sprintf(
-		"%d\n",
-		offset,
-	)
-
-	conn.Write([]byte(response))
+	offset := b.Coordinator.OffsetManager.GetOffset(groupName, topic, partition)
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("offset=%d", offset))
 }

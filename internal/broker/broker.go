@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"real-time-event-streaming/internal/config"
 	"real-time-event-streaming/internal/coordinator"
 	"real-time-event-streaming/internal/storage"
 )
@@ -10,10 +11,9 @@ type Broker struct {
 	Coordinator *coordinator.Coordinator
 }
 
-func NewBroker() *Broker {
-
+func NewBroker(cfg *config.Config) *Broker {
 	return &Broker{
-		Storage:     storage.NewStorage(),
-		Coordinator: coordinator.NewCoordinator(),
+		Storage:     storage.NewStorage(cfg),
+		Coordinator: coordinator.NewCoordinator(cfg),
 	}
 }
