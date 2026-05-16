@@ -32,3 +32,11 @@ go.work.sum
 # .vscode/
 
 data/
+
+# TypeScript SDK (packages/sdk/typescript)
+node_modules/
+dist/
+.pnpm-store/
+*.tsbuildinfo
+npm-debug.log*
+pnpm-debug.log*

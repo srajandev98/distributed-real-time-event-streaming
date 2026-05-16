@@ -1,0 +1,30 @@
+{
+  "name": "@rtes/typescript-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Real-time Event Streaming broker",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "event-streaming",
+    "messaging",
+    "sdk",
+    "typescript",
+    "node"
+  ],
+  "license": "MIT",
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  }
+}
