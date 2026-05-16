@@ -2,10 +2,11 @@ package coordinator
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"real-time-event-streaming/internal/logging"
 )
 
 type OffsetManager struct {
@@ -59,21 +60,21 @@ func (om *OffsetManager) GetOffset(group string, topic string, partition int) in
 
 func (om *OffsetManager) save() {
 	if err := os.MkdirAll(om.dataDir, 0o755); err != nil {
-		fmt.Println("Offset save mkdir error:", err)
+		logging.Error("offset save mkdir failed", "data_dir", om.dataDir, "error", err)
 		return
 	}
 
 	path := filepath.Join(om.dataDir, "offsets.json")
 	file, err := os.Create(path)
 	if err != nil {
-		fmt.Println("Offset save error:", err)
+		logging.Error("offset save open failed", "path", path, "error", err)
 		return
 	}
 	defer file.Close()
 
 	encoder := json.NewEncoder(file)
 	if err := encoder.Encode(om.offsets); err != nil {
-		fmt.Println("JSON encode error:", err)
+		logging.Error("offset save encode failed", "path", path, "error", err)
 	}
 }
 
@@ -87,6 +88,6 @@ func (om *OffsetManager) load() {
 
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(&om.offsets); err != nil {
-		fmt.Println("Offset load error:", err)
+		logging.Error("offset load decode failed", "path", path, "error", err)
 	}
 }

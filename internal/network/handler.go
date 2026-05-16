@@ -7,28 +7,34 @@ import (
 	"strings"
 
 	"real-time-event-streaming/internal/broker"
+	"real-time-event-streaming/internal/logging"
 	"real-time-event-streaming/internal/protocol"
 )
 
 func HandleConnection(conn net.Conn, b *broker.Broker) {
 	defer conn.Close()
+	remoteAddr := conn.RemoteAddr().String()
 
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		line := scanner.Text()
 		req, err := protocol.ParseRequest(line)
 		if err != nil {
+			logging.Warn("request parse failed", "remote_addr", remoteAddr, "error", err, "raw", line)
 			conn.Write([]byte(protocol.Err("0", "BAD_REQUEST", err.Error())))
 			continue
 		}
+		logging.Info("request received", "remote_addr", remoteAddr, "correlation_id", req.CorrelationID, "command", req.Command)
 
 		response := handleRequest(req, b)
 		conn.Write([]byte(response))
 	}
 
 	if err := scanner.Err(); err != nil {
-		fmt.Println("Client disconnected:", err)
+		logging.Warn("client disconnected with scanner error", "remote_addr", remoteAddr, "error", err)
+		return
 	}
+	logging.Info("client disconnected", "remote_addr", remoteAddr)
 }
 
 func handleRequest(req *protocol.Request, b *broker.Broker) string {
@@ -62,6 +68,7 @@ func handleProduce(req *protocol.Request, b *broker.Broker) string {
 	key := messageParts[0]
 	value := messageParts[1]
 	partition, offset := b.Storage.Produce(topic, key, value)
+	logging.Info("message produced", "correlation_id", req.CorrelationID, "topic", topic, "partition", partition, "offset", offset)
 
 	payload := fmt.Sprintf("partition=%d offset=%d", partition, offset)
 	return protocol.Ok(req.CorrelationID, payload)
@@ -125,6 +132,7 @@ func handleCommit(req *protocol.Request, b *broker.Broker) string {
 	}
 
 	b.Coordinator.OffsetManager.Commit(groupName, topic, partition, offset)
+	logging.Info("offset committed", "correlation_id", req.CorrelationID, "group", groupName, "topic", topic, "partition", partition, "offset", offset)
 	return protocol.Ok(req.CorrelationID, "committed=true")
 }
 

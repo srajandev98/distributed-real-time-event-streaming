@@ -1,8 +1,9 @@
 package coordinator
 
 import (
-	"fmt"
 	"sync"
+
+	"real-time-event-streaming/internal/logging"
 )
 
 type GroupManager struct {
@@ -54,8 +55,5 @@ func (gm *GroupManager) rebalance(group *ConsumerGroup) {
 		group.assignments[consumerID] = append(group.assignments[consumerID], partition)
 	}
 
-	fmt.Println("Rebalance complete")
-	for consumer, partitions := range group.assignments {
-		fmt.Printf("consumer=%s partitions=%v\n", consumer, partitions)
-	}
+	logging.Info("group rebalance complete", "group", group.name, "topic", group.topic, "members", len(group.consumers), "assignments", group.assignments)
 }
