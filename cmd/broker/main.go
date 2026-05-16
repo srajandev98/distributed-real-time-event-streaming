@@ -10,6 +10,7 @@ import (
 	"real-time-event-streaming/internal/network"
 )
 
+// main boots config, builds all broker dependencies, and starts the TCP server.
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -28,6 +29,8 @@ func main() {
 	logging.Info("broker started", "listen_addr", cfg.ListenAddr, "data_dir", cfg.DataDir, "num_partitions", cfg.NumPartitions)
 
 	for {
+		// Each accepted connection is handled in a separate goroutine so
+		// multiple clients can produce/consume at the same time.
 		conn, err := listener.Accept()
 		if err != nil {
 			logging.Warn("connection accept failed", "error", err)

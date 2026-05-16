@@ -9,6 +9,7 @@ import (
 	"real-time-event-streaming/internal/protocol"
 )
 
+// newTestBroker creates an isolated broker instance for handler tests.
 func newTestBroker(t *testing.T) *broker.Broker {
 	t.Helper()
 
@@ -21,6 +22,7 @@ func newTestBroker(t *testing.T) *broker.Broker {
 	return broker.NewBroker(cfg)
 }
 
+// TestHandleRequestUnknownCommand verifies unsupported commands are rejected.
 func TestHandleRequestUnknownCommand(t *testing.T) {
 	b := newTestBroker(t)
 	req := &protocol.Request{Version: "V1", CorrelationID: "1", Command: "NOPE", Args: []string{}}
@@ -31,6 +33,7 @@ func TestHandleRequestUnknownCommand(t *testing.T) {
 	}
 }
 
+// TestHandleProduceValidation checks required produce arguments.
 func TestHandleProduceValidation(t *testing.T) {
 	b := newTestBroker(t)
 
@@ -41,6 +44,7 @@ func TestHandleProduceValidation(t *testing.T) {
 	}
 }
 
+// TestHandleFlowProduceConsumeOffsetCommit validates core command flow together.
 func TestHandleFlowProduceConsumeOffsetCommit(t *testing.T) {
 	b := newTestBroker(t)
 

@@ -2,6 +2,7 @@ package coordinator
 
 import "testing"
 
+// TestCommitAndGetOffset verifies in-memory commit and read behavior.
 func TestCommitAndGetOffset(t *testing.T) {
 	om := NewOffsetManager(t.TempDir())
 
@@ -13,6 +14,7 @@ func TestCommitAndGetOffset(t *testing.T) {
 	}
 }
 
+// TestOffsetPersistence verifies offsets survive manager restart.
 func TestOffsetPersistence(t *testing.T) {
 	dir := t.TempDir()
 

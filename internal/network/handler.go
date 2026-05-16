@@ -11,6 +11,7 @@ import (
 	"real-time-event-streaming/internal/protocol"
 )
 
+// HandleConnection is the request loop for one client TCP connection.
 func HandleConnection(conn net.Conn, b *broker.Broker) {
 	defer conn.Close()
 	remoteAddr := conn.RemoteAddr().String()
@@ -37,6 +38,7 @@ func HandleConnection(conn net.Conn, b *broker.Broker) {
 	logging.Info("client disconnected", "remote_addr", remoteAddr)
 }
 
+// handleRequest routes parsed commands to command-specific handlers.
 func handleRequest(req *protocol.Request, b *broker.Broker) string {
 	switch req.Command {
 	case "PRODUCE":
@@ -54,6 +56,7 @@ func handleRequest(req *protocol.Request, b *broker.Broker) string {
 	}
 }
 
+// handleProduce validates produce args and appends a message to storage.
 func handleProduce(req *protocol.Request, b *broker.Broker) string {
 	if len(req.Args) < 2 {
 		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "PRODUCE requires: <topic> <key>:<value>")
@@ -74,6 +77,7 @@ func handleProduce(req *protocol.Request, b *broker.Broker) string {
 	return protocol.Ok(req.CorrelationID, payload)
 }
 
+// handleConsume validates consume args and returns messages from an offset.
 func handleConsume(req *protocol.Request, b *broker.Broker) string {
 	if len(req.Args) != 3 {
 		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "CONSUME requires: <topic> <partition> <offset>")
@@ -102,6 +106,7 @@ func handleConsume(req *protocol.Request, b *broker.Broker) string {
 	return protocol.Ok(req.CorrelationID, "messages="+strings.Join(items, ","))
 }
 
+// handleJoin registers a consumer into a group and returns assignments.
 func handleJoin(req *protocol.Request, b *broker.Broker) string {
 	if len(req.Args) != 3 {
 		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "JOIN requires: <group> <topic> <consumer_id>")
@@ -115,6 +120,7 @@ func handleJoin(req *protocol.Request, b *broker.Broker) string {
 	return protocol.Ok(req.CorrelationID, fmt.Sprintf("assigned=%v", partitions))
 }
 
+// handleCommit stores processed offsets for group progress tracking.
 func handleCommit(req *protocol.Request, b *broker.Broker) string {
 	if len(req.Args) != 4 {
 		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "COMMIT requires: <group> <topic> <partition> <offset>")
@@ -136,6 +142,7 @@ func handleCommit(req *protocol.Request, b *broker.Broker) string {
 	return protocol.Ok(req.CorrelationID, "committed=true")
 }
 
+// handleOffset returns last committed offset for a group/topic/partition.
 func handleOffset(req *protocol.Request, b *broker.Broker) string {
 	if len(req.Args) != 3 {
 		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "OFFSET requires: <group> <topic> <partition>")

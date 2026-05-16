@@ -2,6 +2,7 @@ package coordinator
 
 import "testing"
 
+// TestJoinGroupSingleConsumerGetsAllPartitions verifies single-member ownership.
 func TestJoinGroupSingleConsumerGetsAllPartitions(t *testing.T) {
 	gm := NewGroupManager(3)
 
@@ -14,6 +15,7 @@ func TestJoinGroupSingleConsumerGetsAllPartitions(t *testing.T) {
 	}
 }
 
+// TestJoinGroupRebalanceTwoConsumers checks round-robin rebalance behavior.
 func TestJoinGroupRebalanceTwoConsumers(t *testing.T) {
 	gm := NewGroupManager(3)
 

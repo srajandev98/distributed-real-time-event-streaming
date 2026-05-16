@@ -56,11 +56,11 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 
 ## Phase 1: Storage Engine v1 (2-4 weeks)
 
-- Replace single log files with segmented append-only logs.
-- Add offset and timestamp indexes per segment.
-- Implement retention + segment compaction primitives.
-- Add startup recovery with checksum validation.
-- Define durability knobs (`flush.interval`, `flush.bytes`, `fsync.mode`).
+- ~~Replace single log files with segmented append-only logs.~~
+- ~~Add offset and timestamp indexes per segment.~~
+- ~~Implement retention + segment compaction primitives.~~
+- ~~Add startup recovery with checksum validation.~~
+- ~~Define durability knobs (`flush.interval`, `flush.bytes`, `fsync.mode`).~~
 
 **Exit Criteria**
 - Restart recovery proven by tests.

@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// Request is the parsed representation of one client protocol line.
 type Request struct {
 	Version       string
 	CorrelationID string
@@ -13,6 +14,7 @@ type Request struct {
 	Args          []string
 }
 
+// Response documents the standard response envelope fields.
 type Response struct {
 	Version       string
 	CorrelationID string
@@ -22,8 +24,10 @@ type Response struct {
 	Payload       string
 }
 
+// Version is the only currently supported protocol version token.
 const Version = "V1"
 
+// ParseRequest validates and parses one wire line into a typed Request.
 func ParseRequest(line string) (*Request, error) {
 	parts := strings.SplitN(strings.TrimSpace(line), "|", 4)
 	if len(parts) != 4 {
@@ -58,6 +62,7 @@ func ParseRequest(line string) (*Request, error) {
 	}, nil
 }
 
+// Ok formats a success response preserving correlation ID.
 func Ok(correlationID string, payload string) string {
 	if payload == "" {
 		return fmt.Sprintf("%s|%s|OK\n", Version, correlationID)
@@ -65,6 +70,7 @@ func Ok(correlationID string, payload string) string {
 	return fmt.Sprintf("%s|%s|OK|%s\n", Version, correlationID, payload)
 }
 
+// Err formats a protocol-level error response.
 func Err(correlationID string, code string, message string) string {
 	if correlationID == "" {
 		correlationID = "0"
@@ -72,6 +78,7 @@ func Err(correlationID string, code string, message string) string {
 	return fmt.Sprintf("%s|%s|ERR|%s|%s\n", Version, correlationID, code, message)
 }
 
+// ParseInt converts numeric request arguments with field-specific errors.
 func ParseInt(value string, field string) (int, error) {
 	parsed, err := strconv.Atoi(value)
 	if err != nil {

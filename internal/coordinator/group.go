@@ -6,12 +6,14 @@ import (
 	"real-time-event-streaming/internal/logging"
 )
 
+// GroupManager tracks group members and computes partition ownership.
 type GroupManager struct {
 	numPartitions int
 	groups        map[string]*ConsumerGroup
 	mutex         sync.Mutex
 }
 
+// ConsumerGroup stores in-memory state for one group-topic pair.
 type ConsumerGroup struct {
 	name        string
 	topic       string
@@ -19,6 +21,7 @@ type ConsumerGroup struct {
 	assignments map[string][]int
 }
 
+// NewGroupManager creates a manager with configured partition count.
 func NewGroupManager(numPartitions int) *GroupManager {
 	return &GroupManager{
 		numPartitions: numPartitions,
@@ -26,6 +29,7 @@ func NewGroupManager(numPartitions int) *GroupManager {
 	}
 }
 
+// JoinGroup adds a consumer and returns its assigned partitions.
 func (gm *GroupManager) JoinGroup(groupName string, topic string, consumerID string) []int {
 	gm.mutex.Lock()
 	defer gm.mutex.Unlock()
@@ -46,6 +50,7 @@ func (gm *GroupManager) JoinGroup(groupName string, topic string, consumerID str
 	return group.assignments[consumerID]
 }
 
+// rebalance applies simple round-robin partition assignment.
 func (gm *GroupManager) rebalance(group *ConsumerGroup) {
 	group.assignments = make(map[string][]int)
 

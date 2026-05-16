@@ -9,12 +9,14 @@ import (
 	"real-time-event-streaming/internal/logging"
 )
 
+// OffsetManager persists committed offsets per group/topic/partition.
 type OffsetManager struct {
 	dataDir string
 	offsets map[string]map[string]map[int]int
 	mutex   sync.Mutex
 }
 
+// NewOffsetManager creates the manager and loads persisted offsets.
 func NewOffsetManager(dataDir string) *OffsetManager {
 	om := &OffsetManager{
 		dataDir: dataDir,
@@ -24,6 +26,7 @@ func NewOffsetManager(dataDir string) *OffsetManager {
 	return om
 }
 
+// Commit saves consumer progress for one partition.
 func (om *OffsetManager) Commit(group string, topic string, partition int, offset int) {
 	om.mutex.Lock()
 	defer om.mutex.Unlock()
@@ -39,6 +42,7 @@ func (om *OffsetManager) Commit(group string, topic string, partition int, offse
 	om.save()
 }
 
+// GetOffset reads last committed progress; returns 0 when missing.
 func (om *OffsetManager) GetOffset(group string, topic string, partition int) int {
 	om.mutex.Lock()
 	defer om.mutex.Unlock()
@@ -58,6 +62,7 @@ func (om *OffsetManager) GetOffset(group string, topic string, partition int) in
 	return offset
 }
 
+// save writes the full offsets map to disk as JSON.
 func (om *OffsetManager) save() {
 	if err := os.MkdirAll(om.dataDir, 0o755); err != nil {
 		logging.Error("offset save mkdir failed", "data_dir", om.dataDir, "error", err)
@@ -78,6 +83,7 @@ func (om *OffsetManager) save() {
 	}
 }
 
+// load restores offsets map from disk if file exists.
 func (om *OffsetManager) load() {
 	path := filepath.Join(om.dataDir, "offsets.json")
 	file, err := os.Open(path)

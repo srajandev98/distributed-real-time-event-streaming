@@ -2,6 +2,7 @@ package protocol
 
 import "testing"
 
+// TestParseRequestValid covers the expected happy-path wire format.
 func TestParseRequestValid(t *testing.T) {
 	req, err := ParseRequest("V1|42|PRODUCE|orders key:value")
 	if err != nil {
@@ -17,6 +18,7 @@ func TestParseRequestValid(t *testing.T) {
 	}
 }
 
+// TestParseRequestInvalid verifies malformed requests are rejected.
 func TestParseRequestInvalid(t *testing.T) {
 	cases := []string{
 		"",
@@ -33,6 +35,7 @@ func TestParseRequestInvalid(t *testing.T) {
 	}
 }
 
+// TestResponses checks success/error response wire formatting.
 func TestResponses(t *testing.T) {
 	ok := Ok("7", "offset=3")
 	if ok != "V1|7|OK|offset=3\n" {
@@ -45,6 +48,7 @@ func TestResponses(t *testing.T) {
 	}
 }
 
+// TestParseInt verifies integer argument parsing used by handlers.
 func TestParseInt(t *testing.T) {
 	value, err := ParseInt("10", "offset")
 	if err != nil || value != 10 {
