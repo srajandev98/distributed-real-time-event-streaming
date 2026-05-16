@@ -1,0 +1,18 @@
+services:
+  broker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rtes-broker
+    ports:
+      - "9092:9092"
+    environment:
+      RTES_LISTEN_ADDR: ":9092"
+      RTES_DATA_DIR: "/app/data"
+      RTES_NUM_PARTITIONS: "3"
+    volumes:
+      - rtes_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  rtes_data:

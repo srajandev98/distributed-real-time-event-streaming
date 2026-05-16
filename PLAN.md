@@ -42,11 +42,12 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 
 ## Phase 0: Stabilize Existing Prototype (1-2 weeks)
 
-- Harden protocol parsing and error handling.
-- Add explicit request/response envelopes with correlation IDs.
-- Centralize configuration (ports, data dir, partitions, flush policy).
+- ~~Harden protocol parsing and error handling.~~
+- ~~Add explicit request/response envelopes with correlation IDs.~~
+- Define versioned protocol compatibility and error code registry.
+- ~~Centralize configuration (ports, data dir, partitions, flush policy).~~
 - Introduce structured logging.
-- Add unit tests for storage, group balancing, offset handling, protocol parser.
+- ~~Add unit tests for storage, group balancing, offset handling, protocol parser.~~
 
 **Exit Criteria**
 - Invalid inputs do not crash broker.
@@ -73,6 +74,7 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 - Support leader/follower role transitions.
 - Implement produce ack modes (`acks=1`, `acks=all`).
 - Add replica lag monitoring and ISR shrink/expand logic.
+- Add under-replicated partition detection and alert hooks.
 
 **Exit Criteria**
 - Replicated writes survive single broker failure.
@@ -86,6 +88,7 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 - Assignors: range and round-robin.
 - Durable group metadata and member generation IDs.
 - Offset commit validation against member generation.
+- Enforce unique member identity per group and reject duplicate joins safely.
 
 **Exit Criteria**
 - Rebalance correctness under member joins/leaves/crashes.
@@ -98,6 +101,7 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 - Migrate topic/partition metadata from local state to quorum.
 - Implement leader election for partitions.
 - Add broker registration, health, and fencing.
+- Add cluster metadata and health admin APIs (topic lifecycle + broker state).
 
 **Exit Criteria**
 - Metadata survives controller failover.
@@ -166,12 +170,15 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 
 ## 9. Immediate Backlog (Next 2 Weeks)
 
-1. Define protocol envelope and error codes.
-2. Add config package and bootstrap validation.
+1. ~~Define protocol envelope and error codes.~~
+2. ~~Add config package and bootstrap validation.~~
 3. Refactor storage into segmented logs.
-4. Implement comprehensive unit tests for current modules.
+4. ~~Implement comprehensive unit tests for current modules.~~
 5. Add GitHub Actions CI with lint + race + tests.
 6. Introduce Prometheus metrics skeleton.
+7. Scaffold `internal/replication` with interfaces and integration test harness.
+8. Add consumer-group generation ID and duplicate-member guard in coordinator.
+9. Add protocol compatibility/versioning document with upgrade rules.
 
 ## 10. Risks and Mitigations
 

@@ -403,7 +403,7 @@ OFFSET analytics orders 1
 
 ## Requirements
 
-- Go 1.22+
+- Go 1.24+
 
 ---
 
@@ -418,6 +418,59 @@ Expected output:
 ```text
 real-time-event-streaming broker listening on port 9092
 ```
+
+---
+
+# Deploy With Docker
+
+## Prerequisites
+
+- Docker
+- Docker Compose (v2)
+
+---
+
+## Start Broker
+
+```bash
+docker compose up --build -d
+```
+
+This starts the broker on `localhost:9092` and persists broker data in a named volume (`rtes_data`).
+
+---
+
+## View Logs
+
+```bash
+docker compose logs -f broker
+```
+
+---
+
+## Stop Broker
+
+```bash
+docker compose down
+```
+
+---
+
+## Stop Broker And Remove Data
+
+```bash
+docker compose down -v
+```
+
+---
+
+## Runtime Configuration (Environment Variables)
+
+- `RTES_LISTEN_ADDR` default: `:9092`
+- `RTES_DATA_DIR` default: `/app/data`
+- `RTES_NUM_PARTITIONS` default: `3`
+
+Update these values in `docker-compose.yml` under `services.broker.environment`.
 
 ---
 
