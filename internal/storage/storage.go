@@ -21,15 +21,16 @@ import (
 
 const (
 	// Reasonable defaults used when config values are not provided.
-	defaultSegmentMaxBytes  int64         = 1 * 1024 * 1024
-	defaultRetentionMaxAge  time.Duration = 24 * time.Hour
-	defaultFlushIntervalMs  int           = 1000
-	defaultFlushBytes       int64         = 64 * 1024
-	defaultFsyncMode        string        = "always"
-	fsyncModeAlways         string        = "always"
-	fsyncModeNever          string        = "never"
-	fsyncModeInterval       string        = "interval"
-	defaultRetentionMaxByte int64         = 50 * 1024 * 1024
+	defaultSegmentMaxBytes   int64         = 1 * 1024 * 1024
+	defaultRetentionMaxAge   time.Duration = 24 * time.Hour
+	defaultFlushIntervalMs   int           = 1000
+	defaultFlushBytes        int64         = 64 * 1024
+	defaultFsyncMode         string        = "always"
+	fsyncModeAlways          string        = "always"
+	fsyncModeNever           string        = "never"
+	fsyncModeInterval        string        = "interval"
+	defaultRetentionMaxByte  int64         = 50 * 1024 * 1024
+	defaultLocalReplicaCount int           = 2
 )
 
 // partitionState tracks mutable write/retention state for one partition.
@@ -53,6 +54,7 @@ type Storage struct {
 	flushBytes        int64
 	fsyncMode         string
 	partitionState    map[string]map[int]*partitionState
+	localReplicaCount int
 	mutex             sync.Mutex
 }
 
@@ -69,6 +71,7 @@ func NewStorage(cfg *config.Config) *Storage {
 		flushBytes:        valueOrDefaultInt64(cfg.FlushBytes, defaultFlushBytes),
 		fsyncMode:         valueOrDefaultString(cfg.FsyncMode, defaultFsyncMode),
 		partitionState:    make(map[string]map[int]*partitionState),
+		localReplicaCount: defaultLocalReplicaCount,
 	}
 
 	s.loadData()
@@ -117,6 +120,9 @@ func (s *Storage) Produce(topic string, key string, value string) (int, int) {
 	}
 	_ = f.Close()
 
+	// Simplified local replication: mirror records into replica files on same node.
+	s.writeLocalReplicas(topic, partition, st.activeSegmentID, line)
+
 	// Keep simple side indexes to make future seek/read optimizations possible.
 	s.appendOffsetIndex(topic, partition, offset, st.activeSegmentID)
 	s.appendTimestampIndex(topic, partition, timestamp, st.activeSegmentID, offset)
@@ -130,6 +136,15 @@ func (s *Storage) Produce(topic string, key string, value string) (int, int) {
 	// Enforce cleanup policy after appends so data size/age stays bounded.
 	s.enforceRetentionLocked()
 	return partition, offset
+}
+
+func (s *Storage) writeLocalReplicas(topic string, partition int, segmentID int, line string) {
+	for replicaID := 1; replicaID <= s.localReplicaCount; replicaID++ {
+		path := s.replicaSegmentPath(topic, partition, replicaID, segmentID)
+		if err := appendLine(path, line); err != nil {
+			logging.Error("write replica segment failed", "path", path, "error", err)
+		}
+	}
 }
 
 // Consume returns messages from a partition starting at provided offset.
@@ -301,6 +316,10 @@ func (s *Storage) offsetIndexPath(topic string, partition int) string {
 
 func (s *Storage) timestampIndexPath(topic string, partition int) string {
 	return filepath.Join(s.dataDir, fmt.Sprintf("%s-%d-time.idx", topic, partition))
+}
+
+func (s *Storage) replicaSegmentPath(topic string, partition int, replicaID int, segmentID int) string {
+	return filepath.Join(s.dataDir, fmt.Sprintf("%s-%d-replica-%d-segment-%06d.log", topic, partition, replicaID, segmentID))
 }
 
 func (s *Storage) appendOffsetIndex(topic string, partition int, offset int, segmentID int) {

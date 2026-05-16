@@ -122,6 +122,33 @@ func TestSegmentRotationAndIndexes(t *testing.T) {
 	}
 }
 
+// TestLocalReplicaFilesCreated verifies simplified same-node replica file writes.
+func TestLocalReplicaFilesCreated(t *testing.T) {
+	s := newTestStorage(t)
+	_, _ = s.Produce("orders", "same-key", "created")
+
+	files, err := os.ReadDir(s.dataDir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+
+	replica1 := false
+	replica2 := false
+	for _, f := range files {
+		name := f.Name()
+		if strings.Contains(name, "-replica-1-segment-") {
+			replica1 = true
+		}
+		if strings.Contains(name, "-replica-2-segment-") {
+			replica2 = true
+		}
+	}
+
+	if !replica1 || !replica2 {
+		t.Fatalf("expected replica files to be created; replica1=%v replica2=%v", replica1, replica2)
+	}
+}
+
 // TestChecksumRecoverySkipsCorruptRecords ensures bad records are skipped.
 func TestChecksumRecoverySkipsCorruptRecords(t *testing.T) {
 	dir := t.TempDir()
