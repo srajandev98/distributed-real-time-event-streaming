@@ -2,12 +2,21 @@ import net from 'node:net';
 
 import { RTESProtocolError } from './errors';
 import { buildCommandLine, parseResponse } from './protocol';
-import { extractIntField, mustGetPayload, parseConsumedMessages, parseJoinAssignments } from './parsers';
+import {
+  extractIntField,
+  mustGetPayload,
+  parseBoolField,
+  parseConsumedMessages,
+  parseIntListField,
+  parseJoinAssignments,
+} from './parsers';
 import type {
+  AckMode,
   ConsumedMessage,
   JoinResult,
   PendingRequest,
   ProduceResult,
+  ReplicaFetchResult,
   RTESClientOptions,
   RTESResponse,
 } from './types';
@@ -89,13 +98,21 @@ export class RTESClient {
     this.rejectAllPending(new Error('RTES client closed'));
   }
 
-  async produce(topic: string, key: string, value: string): Promise<ProduceResult> {
-    const resp = await this.sendCommand('PRODUCE', `${topic} ${key}:${value}`);
+  async produce(topic: string, key: string, value: string, acks: AckMode = '1'): Promise<ProduceResult> {
+    const resp = await this.sendCommand('PRODUCE', `${topic} ${key}:${value} acks=${acks}`);
     const payload = mustGetPayload(resp, 'produce response payload missing');
+
+    let highWatermark: number | undefined;
+    try {
+      highWatermark = extractIntField(payload, 'hw');
+    } catch {
+      highWatermark = undefined;
+    }
 
     return {
       partition: extractIntField(payload, 'partition'),
       offset: extractIntField(payload, 'offset'),
+      highWatermark,
       raw: resp,
     };
   }
@@ -120,6 +137,24 @@ export class RTESClient {
   async offset(group: string, topic: string, partition: number): Promise<number> {
     const resp = await this.sendCommand('OFFSET', `${group} ${topic} ${partition}`);
     return extractIntField(mustGetPayload(resp, 'offset response payload missing'), 'offset');
+  }
+
+  async replicaFetch(
+    topic: string,
+    partition: number,
+    replicaId: number,
+    offset: number,
+  ): Promise<ReplicaFetchResult> {
+    const resp = await this.sendCommand('REPLICA_FETCH', `${topic} ${partition} ${replicaId} ${offset}`);
+    const payload = mustGetPayload(resp, 'replica fetch response payload missing');
+    return {
+      replicaId: extractIntField(payload, 'replica'),
+      ackedOffset: extractIntField(payload, 'acked_offset'),
+      highWatermark: extractIntField(payload, 'hw'),
+      isr: parseIntListField(payload, 'isr'),
+      underReplicated: parseBoolField(payload, 'under_replicated'),
+      raw: resp,
+    };
   }
 
   async sendCommand(command: string, args = ''): Promise<RTESResponse> {

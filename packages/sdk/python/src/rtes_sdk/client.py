@@ -23,6 +23,7 @@ class RTESResponse:
 class ProduceResult:
     partition: int
     offset: int
+    high_watermark: Optional[int]
     raw: RTESResponse
 
 
@@ -35,6 +36,15 @@ class ConsumedMessage:
 @dataclass
 class JoinResult:
     assigned: list[int]
+    raw: RTESResponse
+
+@dataclass
+class ReplicaFetchResult:
+    replica_id: int
+    acked_offset: int
+    high_watermark: int
+    isr: list[int]
+    under_replicated: bool
     raw: RTESResponse
 
 
@@ -76,12 +86,20 @@ class RTESClient:
             self._sock.close()
             self._sock = None
 
-    def produce(self, topic: str, key: str, value: str) -> ProduceResult:
-        resp = self.send_command("PRODUCE", f"{topic} {key}:{value}")
+    def produce(self, topic: str, key: str, value: str, acks: str = "1") -> ProduceResult:
+        if acks not in ("0", "1", "all"):
+            raise ValueError("acks must be one of: '0', '1', 'all'")
+        resp = self.send_command("PRODUCE", f"{topic} {key}:{value} acks={acks}")
         payload = self._must_payload(resp, "produce response payload missing")
+        hw: Optional[int] = None
+        try:
+            hw = self._extract_int_field(payload, "hw")
+        except ValueError:
+            hw = None
         return ProduceResult(
             partition=self._extract_int_field(payload, "partition"),
             offset=self._extract_int_field(payload, "offset"),
+            high_watermark=hw,
             raw=resp,
         )
 
@@ -91,6 +109,7 @@ class RTESClient:
 
         parts = payload.split("messages=", 1)
         data = parts[1] if len(parts) == 2 else ""
+        data = data.split(" hw=", 1)[0].strip()
         if data.strip() == "":
             return []
 
@@ -132,6 +151,18 @@ class RTESClient:
         resp = self.send_command("OFFSET", f"{group} {topic} {partition}")
         payload = self._must_payload(resp, "offset response payload missing")
         return self._extract_int_field(payload, "offset")
+
+    def replica_fetch(self, topic: str, partition: int, replica_id: int, offset: int) -> ReplicaFetchResult:
+        resp = self.send_command("REPLICA_FETCH", f"{topic} {partition} {replica_id} {offset}")
+        payload = self._must_payload(resp, "replica fetch response payload missing")
+        return ReplicaFetchResult(
+            replica_id=self._extract_int_field(payload, "replica"),
+            acked_offset=self._extract_int_field(payload, "acked_offset"),
+            high_watermark=self._extract_int_field(payload, "hw"),
+            isr=self._extract_int_list_field(payload, "isr"),
+            under_replicated=self._extract_bool_field(payload, "under_replicated"),
+            raw=resp,
+        )
 
     def send_command(self, command: str, args: str = "") -> RTESResponse:
         if self._sock is None or self._file is None:
@@ -211,3 +242,35 @@ class RTESClient:
 
         num = payload[start + len(token) :].split()[0]
         return int(num)
+
+    @staticmethod
+    def _extract_int_list_field(payload: str, key: str) -> list[int]:
+        token = f"{key}=["
+        start = payload.find(token)
+        if start == -1:
+            return []
+
+        rest = payload[start + len(token) :]
+        end = rest.find("]")
+        if end == -1:
+            raise ValueError(f"Field {key} malformed in payload: {payload}")
+
+        body = rest[:end].strip()
+        if body == "":
+            return []
+
+        return [int(v) for v in body.split()]
+
+    @staticmethod
+    def _extract_bool_field(payload: str, key: str) -> bool:
+        token = f"{key}="
+        start = payload.find(token)
+        if start == -1:
+            raise ValueError(f"Field {key} missing in payload: {payload}")
+
+        value = payload[start + len(token) :].split()[0].strip().lower()
+        if value == "true":
+            return True
+        if value == "false":
+            return False
+        raise ValueError(f"Invalid boolean for {key}: {payload}")

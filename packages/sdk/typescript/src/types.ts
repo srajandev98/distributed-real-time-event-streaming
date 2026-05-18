@@ -17,8 +17,11 @@ export interface RTESResponse {
 export interface ProduceResult {
   partition: number;
   offset: number;
+  highWatermark?: number;
   raw: RTESResponse;
 }
+
+export type AckMode = '0' | '1' | 'all';
 
 export interface ConsumedMessage {
   offset: number;
@@ -27,6 +30,15 @@ export interface ConsumedMessage {
 
 export interface JoinResult {
   assigned: number[];
+  raw: RTESResponse;
+}
+
+export interface ReplicaFetchResult {
+  replicaId: number;
+  ackedOffset: number;
+  highWatermark: number;
+  isr: number[];
+  underReplicated: boolean;
   raw: RTESResponse;
 }
 

@@ -18,7 +18,7 @@ from rtes_sdk import RTESClient
 client = RTESClient(host="127.0.0.1", port=9092)
 client.connect()
 
-produced = client.produce("orders", "user1", "created")
+produced = client.produce("orders", "user1", "created", acks="all")
 print("produced", produced)
 
 messages = client.consume("orders", produced.partition, 0)
@@ -29,6 +29,7 @@ print("assigned", join.assigned)
 
 client.commit("analytics", "orders", produced.partition, produced.offset + 1)
 print("offset", client.offset("analytics", "orders", produced.partition))
+print("replica", client.replica_fetch("orders", produced.partition, 1, produced.offset))
 
 client.close()
 ```
@@ -38,11 +39,12 @@ client.close()
 - `connect() -> None`
 - `close() -> None`
 - `send_command(command: str, args: str = "") -> RTESResponse`
-- `produce(topic: str, key: str, value: str) -> ProduceResult`
+- `produce(topic: str, key: str, value: str, acks: str = "1") -> ProduceResult`
 - `consume(topic: str, partition: int, offset: int) -> list[ConsumedMessage]`
 - `join(group: str, topic: str, consumer_id: str) -> JoinResult`
 - `commit(group: str, topic: str, partition: int, offset: int) -> bool`
 - `offset(group: str, topic: str, partition: int) -> int`
+- `replica_fetch(topic: str, partition: int, replica_id: int, offset: int) -> ReplicaFetchResult`
 
 ## Errors
 

@@ -2,6 +2,7 @@ from .client import (
     ConsumedMessage,
     JoinResult,
     ProduceResult,
+    ReplicaFetchResult,
     RTESClient,
     RTESProtocolError,
     RTESResponse,
@@ -12,6 +13,7 @@ __all__ = [
     "RTESProtocolError",
     "RTESResponse",
     "ProduceResult",
+    "ReplicaFetchResult",
     "ConsumedMessage",
     "JoinResult",
 ]

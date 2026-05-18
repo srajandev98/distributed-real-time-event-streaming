@@ -22,7 +22,8 @@ export function extractIntField(payload: string, key: string): number {
 }
 
 export function parseConsumedMessages(payload: string): ConsumedMessage[] {
-  const [, data = ''] = payload.split('messages=');
+  const [, rawData = ''] = payload.split('messages=');
+  const data = rawData.split(' hw=')[0].trim();
 
   if (data.trim() === '') {
     return [];
@@ -43,6 +44,29 @@ export function parseConsumedMessages(payload: string): ConsumedMessage[] {
         value: valueParts.join(':'),
       } satisfies ConsumedMessage;
     });
+}
+
+export function parseIntListField(payload: string, key: string): number[] {
+  const match = payload.match(new RegExp(`${key}=\\[([^\\]]*)\\]`));
+  if (!match) {
+    return [];
+  }
+  const body = match[1].trim();
+  if (body === '') {
+    return [];
+  }
+  return body
+    .split(/\s+/)
+    .map((v) => Number.parseInt(v, 10))
+    .filter((v) => !Number.isNaN(v));
+}
+
+export function parseBoolField(payload: string, key: string): boolean {
+  const match = payload.match(new RegExp(`${key}=(true|false)`));
+  if (!match) {
+    throw new Error(`Field ${key} missing in payload: ${payload}`);
+  }
+  return match[1] === 'true';
 }
 
 export function parseJoinAssignments(payload: string): JoinResult['assigned'] {
