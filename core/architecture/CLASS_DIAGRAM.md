@@ -12,12 +12,18 @@ classDiagram
       +ListenAddr string
       +DataDir string
       +NumPartitions int
+      +ReplicationFactor int
+      +MinInSyncReplicas int
+      +ReplicaMaxLag int
+      +ReplicaLagTimeoutMs int64
+      +AckAllTimeoutMs int64
       +Load() *Config
     }
 
     class Broker {
       +Storage *Storage
       +Coordinator *Coordinator
+      +Replication *ReplicationManager
       +NewBroker(cfg *Config) *Broker
     }
 
@@ -92,9 +98,28 @@ classDiagram
       -handleRequest(req, broker) string
       -handleProduce(req, broker) string
       -handleConsume(req, broker) string
+      -handleReplicaFetch(req, broker) string
       -handleJoin(req, broker) string
       -handleCommit(req, broker) string
       -handleOffset(req, broker) string
+    }
+
+    class ReplicationManager {
+      +OnLeaderAppend(topic, partition, offset)
+      +AckReplica(topic, partition, replicaID, offset)
+      +WaitForAckAll(topic, partition, targetOffset) error
+      +HighWatermark(topic, partition) int
+      +Status(topic, partition) Status
+    }
+
+    class ReplicationStatus {
+      +Topic string
+      +Partition int
+      +LeaderOffset int
+      +HighWatermark int
+      +InSyncReplicas []int
+      +UnderReplicated bool
+      +ReplicationFactor int
     }
 
     class Logging {
@@ -109,6 +134,7 @@ classDiagram
 
     Broker --> Storage : owns
     Broker --> Coordinator : owns
+    Broker --> ReplicationManager : owns
 
     Coordinator --> GroupManager : owns
     Coordinator --> OffsetManager : owns
@@ -116,12 +142,15 @@ classDiagram
 
     NetworkHandler --> Protocol : parse/format
     NetworkHandler --> Broker : execute commands
+    NetworkHandler --> ReplicationManager : acks/HW/isr
     Storage --> Message : stores
+    ReplicationManager --> ReplicationStatus : returns
 
     Main --> Logging : runtime logs
     NetworkHandler --> Logging : request logs
     GroupManager --> Logging : rebalance logs
     OffsetManager --> Logging : persistence logs
+    ReplicationManager --> Logging : replication alerts
 ```
 
 ## How To Read It Quickly
@@ -132,6 +161,7 @@ classDiagram
 4. `Broker` routes work to:
    - `Storage` for produce/consume
    - `Coordinator` for group membership and offsets
+   - `ReplicationManager` for ISR/high-watermark/acks
 5. `Coordinator` splits responsibilities into:
    - `GroupManager` (partition assignment)
    - `OffsetManager` (persisted consumer progress)
