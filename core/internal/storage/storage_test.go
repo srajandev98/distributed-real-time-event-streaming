@@ -197,7 +197,7 @@ func TestRetentionBySize(t *testing.T) {
 	}
 	var total int64
 	for _, f := range files {
-		if strings.Contains(f.Name(), "segment") {
+		if strings.Contains(f.Name(), "segment") && !strings.Contains(f.Name(), "-replica-") {
 			info, _ := f.Info()
 			total += info.Size()
 		}

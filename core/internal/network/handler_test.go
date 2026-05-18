@@ -1,22 +1,43 @@
 package network
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"real-time-event-streaming/internal/broker"
 	"real-time-event-streaming/internal/config"
 	"real-time-event-streaming/internal/protocol"
 )
 
+func parsePartitionFromProduceResponse(resp string) (int, error) {
+	idx := strings.Index(resp, "partition=")
+	if idx == -1 {
+		return 0, fmt.Errorf("partition field missing")
+	}
+	rest := resp[idx+len("partition="):]
+	end := strings.Index(rest, " ")
+	if end == -1 {
+		end = len(rest)
+	}
+	return strconv.Atoi(rest[:end])
+}
+
 // newTestBroker creates an isolated broker instance for handler tests.
 func newTestBroker(t *testing.T) *broker.Broker {
 	t.Helper()
 
 	cfg := &config.Config{
-		ListenAddr:    ":0",
-		DataDir:       t.TempDir(),
-		NumPartitions: 3,
+		ListenAddr:          ":0",
+		DataDir:             t.TempDir(),
+		NumPartitions:       3,
+		ReplicationFactor:   3,
+		MinInSyncReplicas:   2,
+		ReplicaMaxLag:       0,
+		ReplicaLagTimeoutMs: 10_000,
+		AckAllTimeoutMs:     100,
 	}
 
 	return broker.NewBroker(cfg)
@@ -76,5 +97,70 @@ func TestHandleFlowProduceConsumeOffsetCommit(t *testing.T) {
 	offsetResp := handleRequest(offset, b)
 	if !strings.Contains(offsetResp, "|OK|offset=1") {
 		t.Fatalf("unexpected offset response: %s", offsetResp)
+	}
+}
+
+func TestProduceAcksAllTimeoutThenSucceedsAfterReplicaFetch(t *testing.T) {
+	b := newTestBroker(t)
+
+	produce := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "8",
+		Command:       "PRODUCE",
+		Args:          []string{"orders", "user9:created", "acks=all"},
+	}
+	resp := handleRequest(produce, b)
+	if !strings.Contains(resp, "|ERR|REPLICATION_TIMEOUT|") {
+		t.Fatalf("expected replication timeout, got: %s", resp)
+	}
+
+	// Append with acks=1 first so we have an offset to replicate.
+	produceAcks1 := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "9",
+		Command:       "PRODUCE",
+		Args:          []string{"orders", "user9:updated", "acks=1"},
+	}
+	resp1 := handleRequest(produceAcks1, b)
+	if !strings.Contains(resp1, "|OK|partition=") {
+		t.Fatalf("expected produce success, got: %s", resp1)
+	}
+	partition, err := parsePartitionFromProduceResponse(resp1)
+	if err != nil {
+		t.Fatalf("parse partition: %v, response=%s", err, resp1)
+	}
+
+	// Simulate follower replication progress to satisfy ISR.
+	replFetch := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "10",
+		Command:       "REPLICA_FETCH",
+		Args:          []string{"orders", strconv.Itoa(partition), "1", "1"},
+	}
+	replResp := handleRequest(replFetch, b)
+	if !strings.Contains(replResp, "|OK|replica=1") {
+		t.Fatalf("expected replica fetch ack, got: %s", replResp)
+	}
+
+	produceAll := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "11",
+		Command:       "PRODUCE",
+		Args:          []string{"orders", "user9:confirmed", "acks=all"},
+	}
+	// Ack replica again in goroutine so latest offset is committed.
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		_ = handleRequest(&protocol.Request{
+			Version:       "V1",
+			CorrelationID: "12",
+			Command:       "REPLICA_FETCH",
+			Args:          []string{"orders", strconv.Itoa(partition), "1", "2"},
+		}, b)
+	}()
+
+	respAll := handleRequest(produceAll, b)
+	if !strings.Contains(respAll, "|OK|partition=") {
+		t.Fatalf("expected acks=all success, got: %s", respAll)
 	}
 }

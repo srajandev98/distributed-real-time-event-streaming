@@ -51,6 +51,8 @@ func handleRequest(req *protocol.Request, b *broker.Broker) string {
 		return handleCommit(req, b)
 	case "OFFSET":
 		return handleOffset(req, b)
+	case "REPLICA_FETCH":
+		return handleReplicaFetch(req, b)
 	default:
 		return protocol.Err(req.CorrelationID, "UNKNOWN_COMMAND", "unsupported command")
 	}
@@ -58,8 +60,8 @@ func handleRequest(req *protocol.Request, b *broker.Broker) string {
 
 // handleProduce validates produce args and appends a message to storage.
 func handleProduce(req *protocol.Request, b *broker.Broker) string {
-	if len(req.Args) < 2 {
-		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "PRODUCE requires: <topic> <key>:<value>")
+	if len(req.Args) < 2 || len(req.Args) > 3 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "PRODUCE requires: <topic> <key>:<value> [acks=0|1|all]")
 	}
 
 	topic := req.Args[0]
@@ -70,10 +72,31 @@ func handleProduce(req *protocol.Request, b *broker.Broker) string {
 
 	key := messageParts[0]
 	value := messageParts[1]
+
+	ackMode := "1"
+	if len(req.Args) == 3 {
+		parts := strings.SplitN(req.Args[2], "=", 2)
+		if len(parts) != 2 || strings.ToLower(parts[0]) != "acks" {
+			return protocol.Err(req.CorrelationID, "BAD_REQUEST", "invalid ack mode; expected acks=0|1|all")
+		}
+		ackMode = strings.ToLower(parts[1])
+		if ackMode != "0" && ackMode != "1" && ackMode != "all" {
+			return protocol.Err(req.CorrelationID, "BAD_REQUEST", "invalid ack mode; expected acks=0|1|all")
+		}
+	}
+
 	partition, offset := b.Storage.Produce(topic, key, value)
+	b.Replication.OnLeaderAppend(topic, partition, offset)
+
+	if ackMode == "all" {
+		if err := b.Replication.WaitForAckAll(topic, partition, offset); err != nil {
+			return protocol.Err(req.CorrelationID, "REPLICATION_TIMEOUT", err.Error())
+		}
+	}
+
 	logging.Info("message produced", "correlation_id", req.CorrelationID, "topic", topic, "partition", partition, "offset", offset)
 
-	payload := fmt.Sprintf("partition=%d offset=%d", partition, offset)
+	payload := fmt.Sprintf("partition=%d offset=%d hw=%d", partition, offset, b.Replication.HighWatermark(topic, partition))
 	return protocol.Ok(req.CorrelationID, payload)
 }
 
@@ -93,17 +116,28 @@ func handleConsume(req *protocol.Request, b *broker.Broker) string {
 		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
 	}
 
+	highWatermark := b.Replication.HighWatermark(topic, partition)
+	if highWatermark < 0 || offset > highWatermark {
+		return protocol.Ok(req.CorrelationID, fmt.Sprintf("messages= hw=%d", highWatermark))
+	}
+
 	messages := b.Storage.Consume(topic, partition, offset)
-	if len(messages) == 0 {
-		return protocol.Ok(req.CorrelationID, "messages=")
-	}
-
-	items := make([]string, 0, len(messages))
+	filtered := make([]string, 0, len(messages))
 	for _, msg := range messages {
-		items = append(items, fmt.Sprintf("%d:%s", msg.Offset, msg.Value))
+		if msg.Offset > highWatermark {
+			break
+		}
+		filtered = append(filtered, fmt.Sprintf("%d:%s", msg.Offset, msg.Value))
 	}
 
-	return protocol.Ok(req.CorrelationID, "messages="+strings.Join(items, ","))
+	if len(filtered) == 0 {
+		return protocol.Ok(req.CorrelationID, fmt.Sprintf("messages= hw=%d", highWatermark))
+	}
+
+	if len(messages) == 0 {
+		return protocol.Ok(req.CorrelationID, fmt.Sprintf("messages= hw=%d", highWatermark))
+	}
+	return protocol.Ok(req.CorrelationID, "messages="+strings.Join(filtered, ",")+fmt.Sprintf(" hw=%d", highWatermark))
 }
 
 // handleJoin registers a consumer into a group and returns assignments.
@@ -157,4 +191,40 @@ func handleOffset(req *protocol.Request, b *broker.Broker) string {
 
 	offset := b.Coordinator.OffsetManager.GetOffset(groupName, topic, partition)
 	return protocol.Ok(req.CorrelationID, fmt.Sprintf("offset=%d", offset))
+}
+
+// handleReplicaFetch simulates follower fetch/ack progress for a partition.
+func handleReplicaFetch(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 4 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "REPLICA_FETCH requires: <topic> <partition> <replica_id> <offset>")
+	}
+
+	topic := req.Args[0]
+	partition, err := protocol.ParseInt(req.Args[1], "partition")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	replicaID, err := protocol.ParseInt(req.Args[2], "replica_id")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	offset, err := protocol.ParseInt(req.Args[3], "offset")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+
+	if err := b.Replication.AckReplica(topic, partition, replicaID, offset); err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	status := b.Replication.Status(topic, partition)
+	return protocol.Ok(
+		req.CorrelationID,
+		fmt.Sprintf("replica=%d acked_offset=%d hw=%d isr=%v under_replicated=%t",
+			replicaID,
+			offset,
+			status.HighWatermark,
+			status.InSyncReplicas,
+			status.UnderReplicated,
+		),
+	)
 }

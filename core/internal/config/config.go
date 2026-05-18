@@ -11,6 +11,11 @@ type Config struct {
 	ListenAddr             string
 	DataDir                string
 	NumPartitions          int
+	ReplicationFactor      int
+	MinInSyncReplicas      int
+	ReplicaMaxLag          int
+	ReplicaLagTimeoutMs    int64
+	AckAllTimeoutMs        int64
 	SegmentMaxBytes        int64
 	RetentionMaxBytes      int64
 	RetentionMaxAgeSeconds int64
@@ -25,6 +30,11 @@ func Load() (*Config, error) {
 		ListenAddr:             getEnv("RTES_LISTEN_ADDR", ":9092"),
 		DataDir:                getEnv("RTES_DATA_DIR", "data"),
 		NumPartitions:          3,
+		ReplicationFactor:      3,
+		MinInSyncReplicas:      2,
+		ReplicaMaxLag:          0,
+		ReplicaLagTimeoutMs:    10000,
+		AckAllTimeoutMs:        2000,
 		SegmentMaxBytes:        1 * 1024 * 1024,
 		RetentionMaxBytes:      50 * 1024 * 1024,
 		RetentionMaxAgeSeconds: 86400,
@@ -39,6 +49,41 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid RTES_NUM_PARTITIONS: %w", err)
 		}
 		cfg.NumPartitions = parsed
+	}
+	if raw := os.Getenv("RTES_REPLICATION_FACTOR"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid RTES_REPLICATION_FACTOR: %w", err)
+		}
+		cfg.ReplicationFactor = parsed
+	}
+	if raw := os.Getenv("RTES_MIN_ISR"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid RTES_MIN_ISR: %w", err)
+		}
+		cfg.MinInSyncReplicas = parsed
+	}
+	if raw := os.Getenv("RTES_REPLICA_MAX_LAG"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid RTES_REPLICA_MAX_LAG: %w", err)
+		}
+		cfg.ReplicaMaxLag = parsed
+	}
+	if raw := os.Getenv("RTES_REPLICA_LAG_TIMEOUT_MS"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid RTES_REPLICA_LAG_TIMEOUT_MS: %w", err)
+		}
+		cfg.ReplicaLagTimeoutMs = parsed
+	}
+	if raw := os.Getenv("RTES_ACK_ALL_TIMEOUT_MS"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid RTES_ACK_ALL_TIMEOUT_MS: %w", err)
+		}
+		cfg.AckAllTimeoutMs = parsed
 	}
 	if raw := os.Getenv("RTES_SEGMENT_MAX_BYTES"); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
@@ -81,6 +126,24 @@ func Load() (*Config, error) {
 
 	if cfg.NumPartitions <= 0 {
 		return nil, fmt.Errorf("num partitions must be > 0")
+	}
+	if cfg.ReplicationFactor <= 0 {
+		return nil, fmt.Errorf("replication factor must be > 0")
+	}
+	if cfg.MinInSyncReplicas <= 0 {
+		return nil, fmt.Errorf("min isr must be > 0")
+	}
+	if cfg.MinInSyncReplicas > cfg.ReplicationFactor {
+		return nil, fmt.Errorf("min isr cannot exceed replication factor")
+	}
+	if cfg.ReplicaMaxLag < 0 {
+		return nil, fmt.Errorf("replica max lag must be >= 0")
+	}
+	if cfg.ReplicaLagTimeoutMs <= 0 {
+		return nil, fmt.Errorf("replica lag timeout must be > 0")
+	}
+	if cfg.AckAllTimeoutMs <= 0 {
+		return nil, fmt.Errorf("ack all timeout must be > 0")
 	}
 
 	if cfg.ListenAddr == "" {

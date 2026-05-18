@@ -57,6 +57,12 @@ Produce:
 V1|1|PRODUCE|orders user1:created
 ```
 
+Produce with explicit ack mode:
+
+```text
+V1|1|PRODUCE|orders user1:created acks=all
+```
+
 Consume:
 
 ```text
@@ -79,6 +85,12 @@ Read committed offset:
 
 ```text
 V1|5|OFFSET|analytics orders 2
+```
+
+Follower replication progress (for replica simulation/testing):
+
+```text
+V1|6|REPLICA_FETCH|orders 2 1 42
 ```
 
 ## Expected Responses
@@ -120,6 +132,11 @@ orders-2-replica-2-segment-000000.log
 - `RTES_LISTEN_ADDR` (default `:9092`)
 - `RTES_DATA_DIR` (default `data`)
 - `RTES_NUM_PARTITIONS` (default `3`)
+- `RTES_REPLICATION_FACTOR` (default `3`)
+- `RTES_MIN_ISR` (default `2`)
+- `RTES_REPLICA_MAX_LAG` (default `0`)
+- `RTES_REPLICA_LAG_TIMEOUT_MS` (default `10000`)
+- `RTES_ACK_ALL_TIMEOUT_MS` (default `2000`)
 - `RTES_SEGMENT_MAX_BYTES`
 - `RTES_RETENTION_MAX_BYTES`
 - `RTES_RETENTION_MAX_AGE_SECONDS`
