@@ -6,7 +6,7 @@ import (
 )
 
 func TestJoinGroupSingleConsumerGetsAllPartitions(t *testing.T) {
-	gm := NewGroupManager(3)
+	gm := NewGroupManager(3, t.TempDir())
 
 	result, err := gm.JoinGroup("g1", "orders", "c1", "")
 	if err != nil {
@@ -21,7 +21,7 @@ func TestJoinGroupSingleConsumerGetsAllPartitions(t *testing.T) {
 }
 
 func TestJoinGroupRebalanceTwoConsumersRoundRobin(t *testing.T) {
-	gm := NewGroupManager(3)
+	gm := NewGroupManager(3, t.TempDir())
 	_, _ = gm.JoinGroup("g1", "orders", "c1", "round_robin")
 	assignedC2, err := gm.JoinGroup("g1", "orders", "c2", "round_robin")
 	if err != nil {
@@ -39,7 +39,7 @@ func TestJoinGroupRebalanceTwoConsumersRoundRobin(t *testing.T) {
 }
 
 func TestRangeAssignor(t *testing.T) {
-	gm := NewGroupManager(5)
+	gm := NewGroupManager(5, t.TempDir())
 	_, _ = gm.JoinGroup("g1", "orders", "c1", "range")
 	c2, err := gm.JoinGroup("g1", "orders", "c2", "range")
 	if err != nil {
@@ -56,7 +56,7 @@ func TestRangeAssignor(t *testing.T) {
 }
 
 func TestHeartbeatAndSyncValidateGeneration(t *testing.T) {
-	gm := NewGroupManager(3)
+	gm := NewGroupManager(3, t.TempDir())
 	joined, _ := gm.JoinGroup("g1", "orders", "c1", "")
 
 	if err := gm.Heartbeat("g1", "orders", "c1", joined.Generation); err != nil {
@@ -75,7 +75,7 @@ func TestHeartbeatAndSyncValidateGeneration(t *testing.T) {
 }
 
 func TestSessionTimeoutEvictsMemberAndBumpsGeneration(t *testing.T) {
-	gm := NewGroupManager(3)
+	gm := NewGroupManager(3, t.TempDir())
 	gm.sessionTimeout = 30 * time.Millisecond
 
 	first, _ := gm.JoinGroup("g1", "orders", "c1", "")
@@ -91,7 +91,7 @@ func TestSessionTimeoutEvictsMemberAndBumpsGeneration(t *testing.T) {
 }
 
 func TestValidateCommitRequiresOwnership(t *testing.T) {
-	gm := NewGroupManager(3)
+	gm := NewGroupManager(3, t.TempDir())
 	joined, _ := gm.JoinGroup("g1", "orders", "c1", "")
 
 	if err := gm.ValidateCommit("g1", "orders", "c1", joined.Generation, 0); err != nil {
@@ -102,5 +102,43 @@ func TestValidateCommitRequiresOwnership(t *testing.T) {
 	}
 	if err := gm.ValidateCommit("g1", "orders", "c1", joined.Generation, 9); err == nil {
 		t.Fatalf("expected unassigned partition failure")
+	}
+}
+
+func TestLeaveGroupRemovesMemberAndBumpsGeneration(t *testing.T) {
+	gm := NewGroupManager(3, t.TempDir())
+	joined, _ := gm.JoinGroup("g1", "orders", "c1", "")
+	if err := gm.LeaveGroup("g1", "orders", "c1", joined.Generation); err != nil {
+		t.Fatalf("leave should succeed: %v", err)
+	}
+	if _, exists := gm.groups["g1"].members["c1"]; exists {
+		t.Fatalf("expected member removed after leave")
+	}
+}
+
+func TestGroupStatePersistsAcrossRestart(t *testing.T) {
+	dir := t.TempDir()
+	gm := NewGroupManager(3, dir)
+	joined, err := gm.JoinGroup("g1", "orders", "c1", "round_robin")
+	if err != nil {
+		t.Fatalf("join failed: %v", err)
+	}
+	if joined.Generation < 2 {
+		t.Fatalf("expected generation to increment, got %d", joined.Generation)
+	}
+
+	reloaded := NewGroupManager(3, dir)
+	group := reloaded.groups["g1"]
+	if group == nil {
+		t.Fatalf("expected group to reload from disk")
+	}
+	if group.generation != joined.Generation {
+		t.Fatalf("expected generation %d, got %d", joined.Generation, group.generation)
+	}
+	if group.assignor != "round_robin" {
+		t.Fatalf("unexpected assignor: %s", group.assignor)
+	}
+	if len(group.memberOrder) != 1 || group.memberOrder[0] != "c1" {
+		t.Fatalf("unexpected member order after reload: %v", group.memberOrder)
 	}
 }

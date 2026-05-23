@@ -53,6 +53,7 @@ async function run() {
   const role = await client.setPartitionRole('orders', produced.partition, 'leader');
   console.log('role', role);
 
+  await client.leave('analytics', 'orders', 'consumer-a', join.generation);
   await client.close();
 }
 
@@ -68,7 +69,7 @@ run().catch((err) => {
 A runnable example is included at:
 
 ```text
-examples/basic-usage.js
+examples/basic-usage.ts
 ```
 
 Run it:
@@ -76,7 +77,8 @@ Run it:
 ```bash
 pnpm install
 pnpm run build
-node examples/basic-usage.js
+npx tsc --module commonjs --target es2020 --outDir examples/dist examples/basic-usage.ts
+node examples/dist/basic-usage.js
 ```
 
 ## API
@@ -89,6 +91,7 @@ node examples/basic-usage.js
 - `join(group: string, topic: string, consumerId: string, assignor?: 'round_robin' | 'range'): Promise<JoinResult>`
 - `sync(group: string, topic: string, consumerId: string, generation: number): Promise<SyncResult>`
 - `heartbeat(group: string, topic: string, consumerId: string, generation: number): Promise<boolean>`
+- `leave(group: string, topic: string, consumerId: string, generation: number): Promise<boolean>`
 - `commit(group: string, topic: string, consumerId: string, generation: number, partition: number, offset: number): Promise<boolean>`
 - `offset(group: string, topic: string, partition: number): Promise<number>`
 - `replicaFetch(topic: string, partition: number, replicaId: number, offset: number): Promise<ReplicaFetchResult>`

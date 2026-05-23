@@ -35,6 +35,7 @@ client.commit("analytics", "orders", "consumer-a", join.generation, produced.par
 print("offset", client.offset("analytics", "orders", produced.partition))
 print("replica", client.replica_fetch("orders", produced.partition, 1, produced.offset))
 print("role", client.set_partition_role("orders", produced.partition, "leader"))
+print("left", client.leave("analytics", "orders", "consumer-a", join.generation))
 
 client.close()
 ```
@@ -49,6 +50,7 @@ client.close()
 - `join(group: str, topic: str, consumer_id: str, assignor: Optional[str] = None) -> JoinResult`
 - `sync(group: str, topic: str, consumer_id: str, generation: int) -> SyncResult`
 - `heartbeat(group: str, topic: str, consumer_id: str, generation: int) -> bool`
+- `leave(group: str, topic: str, consumer_id: str, generation: int) -> bool`
 - `commit(group: str, topic: str, consumer_id: str, generation: int, partition: int, offset: int) -> bool`
 - `offset(group: str, topic: str, partition: int) -> int`
 - `replica_fetch(topic: str, partition: int, replica_id: int, offset: int) -> ReplicaFetchResult`

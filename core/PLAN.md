@@ -86,7 +86,7 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 - ~~Heartbeats + session timeouts.~~
 - ~~Join/Sync/Rebalance protocol states.~~
 - ~~Assignors: range and round-robin.~~
-- Durable group metadata and member generation IDs.
+- ~~Durable group metadata and member generation IDs.~~
 - ~~Offset commit validation against member generation.~~
 - ~~Enforce unique member identity per group and reject duplicate joins safely.~~
 

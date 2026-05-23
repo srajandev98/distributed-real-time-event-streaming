@@ -1,7 +1,10 @@
 package coordinator
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -24,6 +27,7 @@ type JoinResult struct {
 type GroupManager struct {
 	numPartitions  int
 	sessionTimeout time.Duration
+	dataDir        string
 	groups         map[string]*ConsumerGroup
 	mutex          sync.Mutex
 }
@@ -45,13 +49,30 @@ type GroupMember struct {
 	lastHeartbeat time.Time
 }
 
+type persistedGroupState struct {
+	Topic       string                `json:"topic"`
+	Generation  int                   `json:"generation"`
+	Assignor    string                `json:"assignor"`
+	MemberOrder []string              `json:"member_order"`
+	Assignments map[string][]int      `json:"assignments"`
+	Members     []persistedGroupMember `json:"members"`
+}
+
+type persistedGroupMember struct {
+	ConsumerID    string `json:"consumer_id"`
+	LastHeartbeat int64  `json:"last_heartbeat_unix_ms"`
+}
+
 // NewGroupManager creates a manager with configured partition count.
-func NewGroupManager(numPartitions int) *GroupManager {
-	return &GroupManager{
+func NewGroupManager(numPartitions int, dataDir string) *GroupManager {
+	gm := &GroupManager{
 		numPartitions:  numPartitions,
 		sessionTimeout: 10 * time.Second,
+		dataDir:        dataDir,
 		groups:         make(map[string]*ConsumerGroup),
 	}
+	gm.load()
+	return gm
 }
 
 // JoinGroup adds a consumer, bumps generation if needed, and returns assignment.
@@ -63,16 +84,54 @@ func (gm *GroupManager) JoinGroup(groupName string, topic string, consumerID str
 	group := gm.ensureGroupLocked(groupName, topic, assignor)
 	gm.cleanupExpiredLocked(group, now)
 
+	mutated := false
 	if _, exists := group.members[consumerID]; !exists {
 		group.memberOrder = append(group.memberOrder, consumerID)
 		group.members[consumerID] = &GroupMember{consumerID: consumerID, lastHeartbeat: now}
 		group.generation++
 		gm.rebalanceLocked(group)
+		mutated = true
 	} else {
 		group.members[consumerID].lastHeartbeat = now
+		mutated = true
+	}
+	if mutated {
+		gm.saveLocked()
 	}
 
 	return JoinResult{Generation: group.generation, Assigned: append([]int(nil), group.assignments[consumerID]...)}, nil
+}
+
+// LeaveGroup removes a consumer from the group and triggers rebalance.
+func (gm *GroupManager) LeaveGroup(groupName string, topic string, consumerID string, generation int) error {
+	gm.mutex.Lock()
+	defer gm.mutex.Unlock()
+
+	group, ok := gm.groups[groupName]
+	if !ok || group.topic != topic {
+		return fmt.Errorf("group not found")
+	}
+	gm.cleanupExpiredLocked(group, time.Now())
+	if generation != group.generation {
+		return fmt.Errorf("stale generation")
+	}
+	if _, ok := group.members[consumerID]; !ok {
+		return fmt.Errorf("unknown member")
+	}
+
+	delete(group.members, consumerID)
+	delete(group.assignments, consumerID)
+	active := make([]string, 0, len(group.memberOrder))
+	for _, id := range group.memberOrder {
+		if id != consumerID {
+			active = append(active, id)
+		}
+	}
+	group.memberOrder = active
+	group.generation++
+	gm.rebalanceLocked(group)
+	gm.saveLocked()
+	return nil
 }
 
 // SyncGroup validates generation and returns latest assignment for this member.
@@ -93,6 +152,7 @@ func (gm *GroupManager) SyncGroup(groupName string, topic string, consumerID str
 		return JoinResult{}, fmt.Errorf("unknown member")
 	}
 	group.members[consumerID].lastHeartbeat = time.Now()
+	gm.saveLocked()
 
 	return JoinResult{Generation: group.generation, Assigned: append([]int(nil), group.assignments[consumerID]...)}, nil
 }
@@ -116,6 +176,7 @@ func (gm *GroupManager) Heartbeat(groupName string, topic string, consumerID str
 		return fmt.Errorf("unknown member")
 	}
 	member.lastHeartbeat = time.Now()
+	gm.saveLocked()
 	return nil
 }
 
@@ -202,6 +263,7 @@ func (gm *GroupManager) cleanupExpiredLocked(group *ConsumerGroup, now time.Time
 	if removed {
 		group.generation++
 		gm.rebalanceLocked(group)
+		gm.saveLocked()
 	}
 }
 
@@ -251,5 +313,97 @@ func (gm *GroupManager) assignRangeLocked(group *ConsumerGroup, members []string
 		}
 		group.assignments[memberID] = parts
 		start += count
+	}
+}
+
+func (gm *GroupManager) statePath() string {
+	return filepath.Join(gm.dataDir, "groups.json")
+}
+
+func (gm *GroupManager) saveLocked() {
+	if err := os.MkdirAll(gm.dataDir, 0o755); err != nil {
+		logging.Error("group save mkdir failed", "data_dir", gm.dataDir, "error", err)
+		return
+	}
+
+	persisted := make(map[string]persistedGroupState, len(gm.groups))
+	for name, group := range gm.groups {
+		members := make([]persistedGroupMember, 0, len(group.memberOrder))
+		for _, memberID := range group.memberOrder {
+			member := group.members[memberID]
+			if member == nil {
+				continue
+			}
+			members = append(members, persistedGroupMember{
+				ConsumerID:    member.consumerID,
+				LastHeartbeat: member.lastHeartbeat.UnixMilli(),
+			})
+		}
+		assignments := make(map[string][]int, len(group.assignments))
+		for memberID, parts := range group.assignments {
+			assignments[memberID] = append([]int(nil), parts...)
+		}
+		persisted[name] = persistedGroupState{
+			Topic:       group.topic,
+			Generation:  group.generation,
+			Assignor:    group.assignor,
+			MemberOrder: append([]string(nil), group.memberOrder...),
+			Assignments: assignments,
+			Members:     members,
+		}
+	}
+
+	file, err := os.Create(gm.statePath())
+	if err != nil {
+		logging.Error("group save open failed", "path", gm.statePath(), "error", err)
+		return
+	}
+	defer file.Close()
+
+	if err := json.NewEncoder(file).Encode(persisted); err != nil {
+		logging.Error("group save encode failed", "path", gm.statePath(), "error", err)
+	}
+}
+
+func (gm *GroupManager) load() {
+	path := gm.statePath()
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	persisted := make(map[string]persistedGroupState)
+	if err := json.NewDecoder(file).Decode(&persisted); err != nil {
+		logging.Error("group load decode failed", "path", path, "error", err)
+		return
+	}
+
+	for name, state := range persisted {
+		group := &ConsumerGroup{
+			name:        name,
+			topic:       state.Topic,
+			generation:  state.Generation,
+			assignor:    state.Assignor,
+			members:     make(map[string]*GroupMember),
+			memberOrder: append([]string(nil), state.MemberOrder...),
+			assignments: make(map[string][]int),
+		}
+		for _, pm := range state.Members {
+			group.members[pm.ConsumerID] = &GroupMember{
+				consumerID:    pm.ConsumerID,
+				lastHeartbeat: time.UnixMilli(pm.LastHeartbeat),
+			}
+		}
+		for memberID, parts := range state.Assignments {
+			group.assignments[memberID] = append([]int(nil), parts...)
+		}
+		if group.assignor == "" {
+			group.assignor = assignorRoundRobin
+		}
+		if group.generation <= 0 {
+			group.generation = 1
+		}
+		gm.groups[name] = group
 	}
 }

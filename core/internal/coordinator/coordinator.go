@@ -11,7 +11,7 @@ type Coordinator struct {
 // NewCoordinator wires sub-managers used for consumer coordination.
 func NewCoordinator(cfg *config.Config) *Coordinator {
 	return &Coordinator{
-		GroupManager:  NewGroupManager(cfg.NumPartitions),
+		GroupManager:  NewGroupManager(cfg.NumPartitions, cfg.DataDir),
 		OffsetManager: NewOffsetManager(cfg.DataDir),
 	}
 }

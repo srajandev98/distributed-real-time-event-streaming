@@ -181,6 +181,11 @@ class RTESClient:
         payload = self._must_payload(resp, "heartbeat response payload missing")
         return "heartbeat=ok" in payload
 
+    def leave(self, group: str, topic: str, consumer_id: str, generation: int) -> bool:
+        resp = self.send_command("LEAVE", f"{group} {topic} {consumer_id} {generation}")
+        payload = self._must_payload(resp, "leave response payload missing")
+        return "left=true" in payload
+
     def commit(
         self,
         group: str,

@@ -128,6 +128,33 @@ func TestHeartbeatAndSyncCommands(t *testing.T) {
 	}
 }
 
+func TestLeaveCommand(t *testing.T) {
+	b := newTestBroker(t)
+
+	join := &protocol.Request{Version: "V1", CorrelationID: "30", Command: "JOIN", Args: []string{"g1", "orders", "c1"}}
+	joinResp := handleRequest(join, b)
+	if !strings.Contains(joinResp, "|OK|generation=2") {
+		t.Fatalf("unexpected join response: %s", joinResp)
+	}
+
+	leave := &protocol.Request{Version: "V1", CorrelationID: "31", Command: "LEAVE", Args: []string{"g1", "orders", "c1", "2"}}
+	leaveResp := handleRequest(leave, b)
+	if !strings.Contains(leaveResp, "|OK|left=true") {
+		t.Fatalf("unexpected leave response: %s", leaveResp)
+	}
+
+	staleCommit := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "32",
+		Command:       "COMMIT",
+		Args:          []string{"g1", "orders", "c1", "2", "0", "1"},
+	}
+	staleCommitResp := handleRequest(staleCommit, b)
+	if !strings.Contains(staleCommitResp, "|ERR|GENERATION_MISMATCH|") {
+		t.Fatalf("expected stale generation after leave, got: %s", staleCommitResp)
+	}
+}
+
 func TestProduceAcksAllTimeoutThenSucceedsAfterReplicaFetch(t *testing.T) {
 	b := newTestBroker(t)
 

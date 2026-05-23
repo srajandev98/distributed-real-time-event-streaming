@@ -51,6 +51,8 @@ func handleRequest(req *protocol.Request, b *broker.Broker) string {
 		return handleSync(req, b)
 	case "HEARTBEAT":
 		return handleHeartbeat(req, b)
+	case "LEAVE":
+		return handleLeave(req, b)
 	case "COMMIT":
 		return handleCommit(req, b)
 	case "OFFSET":
@@ -234,6 +236,25 @@ func handleHeartbeat(req *protocol.Request, b *broker.Broker) string {
 		return protocol.Err(req.CorrelationID, "GENERATION_MISMATCH", err.Error())
 	}
 	return protocol.Ok(req.CorrelationID, "heartbeat=ok")
+}
+
+func handleLeave(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 4 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "LEAVE requires: <group> <topic> <consumer_id> <generation>")
+	}
+
+	groupName := req.Args[0]
+	topic := req.Args[1]
+	consumerID := req.Args[2]
+	generation, err := protocol.ParseInt(req.Args[3], "generation")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+
+	if err := b.Coordinator.GroupManager.LeaveGroup(groupName, topic, consumerID, generation); err != nil {
+		return protocol.Err(req.CorrelationID, "GENERATION_MISMATCH", err.Error())
+	}
+	return protocol.Ok(req.CorrelationID, "left=true")
 }
 
 // handleCommit stores processed offsets for group progress tracking.

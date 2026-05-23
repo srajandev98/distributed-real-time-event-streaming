@@ -1,6 +1,6 @@
 # Examples
 
-## basic-usage.js
+## basic-usage.ts
 
 End-to-end example showing:
 
@@ -13,6 +13,7 @@ End-to-end example showing:
 - commit
 - offset
 - set partition role
+- leave
 - close
 
 Run steps:
@@ -30,5 +31,6 @@ go run ./cmd/broker
 cd ../packages/sdk/typescript
 pnpm install
 pnpm run build
-node examples/basic-usage.js
+npx tsc --module commonjs --target es2020 --outDir examples/dist examples/basic-usage.ts
+node examples/dist/basic-usage.js
 ```

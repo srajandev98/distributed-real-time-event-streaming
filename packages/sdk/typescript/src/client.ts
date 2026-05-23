@@ -158,6 +158,11 @@ export class RTESClient {
     return mustGetPayload(resp, 'heartbeat response payload missing').includes('heartbeat=ok');
   }
 
+  async leave(group: string, topic: string, consumerId: string, generation: number): Promise<boolean> {
+    const resp = await this.sendCommand('LEAVE', `${group} ${topic} ${consumerId} ${generation}`);
+    return mustGetPayload(resp, 'leave response payload missing').includes('left=true');
+  }
+
   async commit(
     group: string,
     topic: string,
