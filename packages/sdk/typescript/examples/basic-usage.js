@@ -12,10 +12,24 @@ async function main() {
   const messages = await client.consume('orders', produced.partition, 0);
   console.log('Consumed:', messages);
 
-  const join = await client.join('analytics', 'orders', 'consumer-a');
+  const join = await client.join('analytics', 'orders', 'consumer-a', 'round_robin');
+  console.log('Join generation:', join.generation);
   console.log('Join assignment:', join.assigned);
 
-  const committed = await client.commit('analytics', 'orders', produced.partition, produced.offset + 1);
+  const heartbeatOk = await client.heartbeat('analytics', 'orders', 'consumer-a', join.generation);
+  console.log('Heartbeat:', heartbeatOk);
+
+  const synced = await client.sync('analytics', 'orders', 'consumer-a', join.generation);
+  console.log('Sync assignment:', synced.assigned);
+
+  const committed = await client.commit(
+    'analytics',
+    'orders',
+    'consumer-a',
+    join.generation,
+    produced.partition,
+    produced.offset + 1,
+  );
   console.log('Commit status:', committed);
 
   const committedOffset = await client.offset('analytics', 'orders', produced.partition);

@@ -24,12 +24,17 @@ print("produced", produced)
 messages = client.consume("orders", produced.partition, 0)
 print("messages", messages)
 
-join = client.join("analytics", "orders", "consumer-a")
+join = client.join("analytics", "orders", "consumer-a", assignor="round_robin")
+print("generation", join.generation)
 print("assigned", join.assigned)
 
-client.commit("analytics", "orders", produced.partition, produced.offset + 1)
+print("heartbeat", client.heartbeat("analytics", "orders", "consumer-a", join.generation))
+print("sync", client.sync("analytics", "orders", "consumer-a", join.generation))
+
+client.commit("analytics", "orders", "consumer-a", join.generation, produced.partition, produced.offset + 1)
 print("offset", client.offset("analytics", "orders", produced.partition))
 print("replica", client.replica_fetch("orders", produced.partition, 1, produced.offset))
+print("role", client.set_partition_role("orders", produced.partition, "leader"))
 
 client.close()
 ```
@@ -41,10 +46,13 @@ client.close()
 - `send_command(command: str, args: str = "") -> RTESResponse`
 - `produce(topic: str, key: str, value: str, acks: str = "1") -> ProduceResult`
 - `consume(topic: str, partition: int, offset: int) -> list[ConsumedMessage]`
-- `join(group: str, topic: str, consumer_id: str) -> JoinResult`
-- `commit(group: str, topic: str, partition: int, offset: int) -> bool`
+- `join(group: str, topic: str, consumer_id: str, assignor: Optional[str] = None) -> JoinResult`
+- `sync(group: str, topic: str, consumer_id: str, generation: int) -> SyncResult`
+- `heartbeat(group: str, topic: str, consumer_id: str, generation: int) -> bool`
+- `commit(group: str, topic: str, consumer_id: str, generation: int, partition: int, offset: int) -> bool`
 - `offset(group: str, topic: str, partition: int) -> int`
 - `replica_fetch(topic: str, partition: int, replica_id: int, offset: int) -> ReplicaFetchResult`
+- `set_partition_role(topic: str, partition: int, role: str) -> PartitionRoleResult`
 
 ## Errors
 

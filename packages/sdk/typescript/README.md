@@ -35,15 +35,23 @@ async function run() {
   const messages = await client.consume('orders', produced.partition, 0);
   console.log('messages', messages);
 
-  const join = await client.join('analytics', 'orders', 'consumer-a');
+  const join = await client.join('analytics', 'orders', 'consumer-a', 'round_robin');
+  console.log('generation', join.generation);
   console.log('assigned', join.assigned);
 
-  await client.commit('analytics', 'orders', produced.partition, produced.offset + 1);
+  await client.heartbeat('analytics', 'orders', 'consumer-a', join.generation);
+  const sync = await client.sync('analytics', 'orders', 'consumer-a', join.generation);
+  console.log('synced', sync);
+
+  await client.commit('analytics', 'orders', 'consumer-a', join.generation, produced.partition, produced.offset + 1);
   const committedOffset = await client.offset('analytics', 'orders', produced.partition);
   console.log('offset', committedOffset);
 
   const replica = await client.replicaFetch('orders', produced.partition, 1, produced.offset);
   console.log('replica', replica);
+
+  const role = await client.setPartitionRole('orders', produced.partition, 'leader');
+  console.log('role', role);
 
   await client.close();
 }
@@ -78,10 +86,13 @@ node examples/basic-usage.js
 - `sendCommand(command: string, args?: string): Promise<RTESResponse>`
 - `produce(topic: string, key: string, value: string, acks?: '0' | '1' | 'all'): Promise<ProduceResult>`
 - `consume(topic: string, partition: number, offset: number): Promise<ConsumedMessage[]>`
-- `join(group: string, topic: string, consumerId: string): Promise<JoinResult>`
-- `commit(group: string, topic: string, partition: number, offset: number): Promise<boolean>`
+- `join(group: string, topic: string, consumerId: string, assignor?: 'round_robin' | 'range'): Promise<JoinResult>`
+- `sync(group: string, topic: string, consumerId: string, generation: number): Promise<SyncResult>`
+- `heartbeat(group: string, topic: string, consumerId: string, generation: number): Promise<boolean>`
+- `commit(group: string, topic: string, consumerId: string, generation: number, partition: number, offset: number): Promise<boolean>`
 - `offset(group: string, topic: string, partition: number): Promise<number>`
 - `replicaFetch(topic: string, partition: number, replicaId: number, offset: number): Promise<ReplicaFetchResult>`
+- `setPartitionRole(topic: string, partition: number, role: 'leader' | 'follower'): Promise<PartitionRoleResult>`
 
 ## Errors
 

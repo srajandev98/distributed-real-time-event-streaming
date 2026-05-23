@@ -22,6 +22,7 @@ type Config struct {
 type Status struct {
 	Topic             string
 	Partition         int
+	Role              string
 	LeaderOffset      int
 	HighWatermark     int
 	InSyncReplicas    []int
@@ -36,6 +37,7 @@ type replicaState struct {
 }
 
 type partitionState struct {
+	role          string
 	leaderOffset  int
 	highWatermark int
 	followers     map[int]*replicaState
@@ -86,6 +88,7 @@ func (m *Manager) ensurePartition(topic string, partition int) *partitionState {
 			followers[id] = &replicaState{offset: -1, inSync: false}
 		}
 		m.partitions[topic][partition] = &partitionState{
+			role:          "leader",
 			leaderOffset:  -1,
 			highWatermark: -1,
 			followers:     followers,
@@ -100,6 +103,9 @@ func (m *Manager) OnLeaderAppend(topic string, partition int, offset int) {
 	defer m.mu.Unlock()
 
 	ps := m.ensurePartition(topic, partition)
+	if ps.role != "leader" {
+		return
+	}
 	if offset > ps.leaderOffset {
 		ps.leaderOffset = offset
 	}
@@ -116,6 +122,9 @@ func (m *Manager) AckReplica(topic string, partition int, replicaID int, offset 
 	}
 
 	ps := m.ensurePartition(topic, partition)
+	if ps.role != "leader" {
+		return fmt.Errorf("partition is not leader")
+	}
 	r := ps.followers[replicaID]
 	if r == nil {
 		return fmt.Errorf("replica id not configured")
@@ -161,6 +170,32 @@ func (m *Manager) HighWatermark(topic string, partition int) int {
 	return ps.highWatermark
 }
 
+func (m *Manager) IsLeader(topic string, partition int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ps := m.ensurePartition(topic, partition)
+	return ps.role == "leader"
+}
+
+func (m *Manager) SetRole(topic string, partition int, role string) error {
+	if role != "leader" && role != "follower" {
+		return fmt.Errorf("invalid role")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ps := m.ensurePartition(topic, partition)
+	ps.role = role
+	if role == "follower" {
+		ps.highWatermark = -1
+		for _, r := range ps.followers {
+			r.inSync = false
+		}
+	}
+	m.recomputeLocked(topic, partition, ps, time.Now())
+	return nil
+}
+
 func (m *Manager) Status(topic string, partition int) Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -180,6 +215,7 @@ func (m *Manager) statusLocked(topic string, partition int, ps *partitionState, 
 	return Status{
 		Topic:             topic,
 		Partition:         partition,
+		Role:              ps.role,
 		LeaderOffset:      ps.leaderOffset,
 		HighWatermark:     ps.highWatermark,
 		InSyncReplicas:    isr,

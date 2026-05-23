@@ -8,5 +8,7 @@ export type {
   ProduceResult,
   ConsumedMessage,
   JoinResult,
+  SyncResult,
+  PartitionRoleResult,
   ReplicaFetchResult,
 } from './types';

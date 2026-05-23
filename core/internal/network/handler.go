@@ -47,12 +47,18 @@ func handleRequest(req *protocol.Request, b *broker.Broker) string {
 		return handleConsume(req, b)
 	case "JOIN":
 		return handleJoin(req, b)
+	case "SYNC":
+		return handleSync(req, b)
+	case "HEARTBEAT":
+		return handleHeartbeat(req, b)
 	case "COMMIT":
 		return handleCommit(req, b)
 	case "OFFSET":
 		return handleOffset(req, b)
 	case "REPLICA_FETCH":
 		return handleReplicaFetch(req, b)
+	case "SET_PARTITION_ROLE":
+		return handleSetPartitionRole(req, b)
 	default:
 		return protocol.Err(req.CorrelationID, "UNKNOWN_COMMAND", "unsupported command")
 	}
@@ -85,6 +91,11 @@ func handleProduce(req *protocol.Request, b *broker.Broker) string {
 		}
 	}
 
+	partition := b.Storage.PartitionForKey(key)
+	if !b.Replication.IsLeader(topic, partition) {
+		return protocol.Err(req.CorrelationID, "NOT_LEADER", "partition leader unavailable on this broker")
+	}
+
 	partition, offset := b.Storage.Produce(topic, key, value)
 	b.Replication.OnLeaderAppend(topic, partition, offset)
 
@@ -98,6 +109,24 @@ func handleProduce(req *protocol.Request, b *broker.Broker) string {
 
 	payload := fmt.Sprintf("partition=%d offset=%d hw=%d", partition, offset, b.Replication.HighWatermark(topic, partition))
 	return protocol.Ok(req.CorrelationID, payload)
+}
+
+func handleSetPartitionRole(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 3 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "SET_PARTITION_ROLE requires: <topic> <partition> <leader|follower>")
+	}
+
+	topic := req.Args[0]
+	partition, err := protocol.ParseInt(req.Args[1], "partition")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	role := strings.ToLower(req.Args[2])
+	if err := b.Replication.SetRole(topic, partition, role); err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	status := b.Replication.Status(topic, partition)
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("topic=%s partition=%d role=%s hw=%d", topic, partition, status.Role, status.HighWatermark))
 }
 
 // handleConsume validates consume args and returns messages from an offset.
@@ -142,37 +171,98 @@ func handleConsume(req *protocol.Request, b *broker.Broker) string {
 
 // handleJoin registers a consumer into a group and returns assignments.
 func handleJoin(req *protocol.Request, b *broker.Broker) string {
-	if len(req.Args) != 3 {
-		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "JOIN requires: <group> <topic> <consumer_id>")
+	if len(req.Args) != 3 && len(req.Args) != 4 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "JOIN requires: <group> <topic> <consumer_id> [assignor=round_robin|range]")
 	}
 
 	groupName := req.Args[0]
 	topic := req.Args[1]
 	consumerID := req.Args[2]
+	assignor := ""
+	if len(req.Args) == 4 {
+		parts := strings.SplitN(req.Args[3], "=", 2)
+		if len(parts) != 2 || strings.ToLower(parts[0]) != "assignor" {
+			return protocol.Err(req.CorrelationID, "BAD_REQUEST", "invalid assignor; expected assignor=round_robin|range")
+		}
+		assignor = strings.ToLower(parts[1])
+		if assignor != "round_robin" && assignor != "range" {
+			return protocol.Err(req.CorrelationID, "BAD_REQUEST", "invalid assignor; expected assignor=round_robin|range")
+		}
+	}
 
-	partitions := b.Coordinator.GroupManager.JoinGroup(groupName, topic, consumerID)
-	return protocol.Ok(req.CorrelationID, fmt.Sprintf("assigned=%v", partitions))
+	result, err := b.Coordinator.GroupManager.JoinGroup(groupName, topic, consumerID, assignor)
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("generation=%d assigned=%v", result.Generation, result.Assigned))
 }
 
-// handleCommit stores processed offsets for group progress tracking.
-func handleCommit(req *protocol.Request, b *broker.Broker) string {
+func handleSync(req *protocol.Request, b *broker.Broker) string {
 	if len(req.Args) != 4 {
-		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "COMMIT requires: <group> <topic> <partition> <offset>")
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "SYNC requires: <group> <topic> <consumer_id> <generation>")
 	}
 
 	groupName := req.Args[0]
 	topic := req.Args[1]
-	partition, err := protocol.ParseInt(req.Args[2], "partition")
-	if err != nil {
-		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
-	}
-	offset, err := protocol.ParseInt(req.Args[3], "offset")
+	consumerID := req.Args[2]
+	generation, err := protocol.ParseInt(req.Args[3], "generation")
 	if err != nil {
 		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
 	}
 
+	result, err := b.Coordinator.GroupManager.SyncGroup(groupName, topic, consumerID, generation)
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "GENERATION_MISMATCH", err.Error())
+	}
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("generation=%d assigned=%v", result.Generation, result.Assigned))
+}
+
+func handleHeartbeat(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 4 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "HEARTBEAT requires: <group> <topic> <consumer_id> <generation>")
+	}
+
+	groupName := req.Args[0]
+	topic := req.Args[1]
+	consumerID := req.Args[2]
+	generation, err := protocol.ParseInt(req.Args[3], "generation")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+
+	if err := b.Coordinator.GroupManager.Heartbeat(groupName, topic, consumerID, generation); err != nil {
+		return protocol.Err(req.CorrelationID, "GENERATION_MISMATCH", err.Error())
+	}
+	return protocol.Ok(req.CorrelationID, "heartbeat=ok")
+}
+
+// handleCommit stores processed offsets for group progress tracking.
+func handleCommit(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 6 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "COMMIT requires: <group> <topic> <consumer_id> <generation> <partition> <offset>")
+	}
+
+	groupName := req.Args[0]
+	topic := req.Args[1]
+	consumerID := req.Args[2]
+	generation, err := protocol.ParseInt(req.Args[3], "generation")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	partition, err := protocol.ParseInt(req.Args[4], "partition")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	offset, err := protocol.ParseInt(req.Args[5], "offset")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+
+	if err := b.Coordinator.GroupManager.ValidateCommit(groupName, topic, consumerID, generation, partition); err != nil {
+		return protocol.Err(req.CorrelationID, "GENERATION_MISMATCH", err.Error())
+	}
 	b.Coordinator.OffsetManager.Commit(groupName, topic, partition, offset)
-	logging.Info("offset committed", "correlation_id", req.CorrelationID, "group", groupName, "topic", topic, "partition", partition, "offset", offset)
+	logging.Info("offset committed", "correlation_id", req.CorrelationID, "group", groupName, "topic", topic, "consumer_id", consumerID, "generation", generation, "partition", partition, "offset", offset)
 	return protocol.Ok(req.CorrelationID, "committed=true")
 }
 

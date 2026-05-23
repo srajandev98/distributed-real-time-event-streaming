@@ -8,8 +8,11 @@ End-to-end example showing:
 - produce
 - consume
 - join
+- heartbeat
+- sync
 - commit
 - offset
+- set partition role
 - close
 
 Run steps:

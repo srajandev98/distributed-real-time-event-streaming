@@ -65,3 +65,33 @@ func TestAckAllSucceedsAfterFollowerAcks(t *testing.T) {
 		t.Fatalf("expected acks=all success, got: %v", err)
 	}
 }
+
+func TestRoleTransitions(t *testing.T) {
+	m := newTestManager()
+
+	if !m.IsLeader("orders", 0) {
+		t.Fatalf("expected default role to be leader")
+	}
+
+	if err := m.SetRole("orders", 0, "follower"); err != nil {
+		t.Fatalf("set follower role: %v", err)
+	}
+	if m.IsLeader("orders", 0) {
+		t.Fatalf("expected follower role")
+	}
+	if err := m.AckReplica("orders", 0, 1, 0); err == nil {
+		t.Fatalf("expected ack failure when partition is follower")
+	}
+
+	if err := m.SetRole("orders", 0, "leader"); err != nil {
+		t.Fatalf("set leader role: %v", err)
+	}
+	if !m.IsLeader("orders", 0) {
+		t.Fatalf("expected leader role")
+	}
+
+	status := m.Status("orders", 0)
+	if status.Role != "leader" {
+		t.Fatalf("expected status role leader, got %s", status.Role)
+	}
+}

@@ -1,6 +1,8 @@
 from .client import (
     ConsumedMessage,
     JoinResult,
+    SyncResult,
+    PartitionRoleResult,
     ProduceResult,
     ReplicaFetchResult,
     RTESClient,
@@ -16,4 +18,6 @@ __all__ = [
     "ReplicaFetchResult",
     "ConsumedMessage",
     "JoinResult",
+    "SyncResult",
+    "PartitionRoleResult",
 ]

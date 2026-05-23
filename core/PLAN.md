@@ -69,12 +69,12 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 
 ## Phase 2: Replication and Partition Leadership (3-5 weeks)
 
-- Implement follower fetch/replication protocol.
-- Track ISR and high watermark per partition.
-- Support leader/follower role transitions.
-- Implement produce ack modes (`acks=1`, `acks=all`).
-- Add replica lag monitoring and ISR shrink/expand logic.
-- Add under-replicated partition detection and alert hooks.
+- ~~Implement follower fetch/replication protocol.~~
+- ~~Track ISR and high watermark per partition.~~
+- ~~Support leader/follower role transitions.~~
+- ~~Implement produce ack modes (`acks=1`, `acks=all`).~~
+- ~~Add replica lag monitoring and ISR shrink/expand logic.~~
+- ~~Add under-replicated partition detection and alert hooks.~~
 
 **Exit Criteria**
 - Replicated writes survive single broker failure.
@@ -83,12 +83,12 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 
 ## Phase 3: Consumer Group Coordination v2 (2-4 weeks)
 
-- Heartbeats + session timeouts.
-- Join/Sync/Rebalance protocol states.
-- Assignors: range and round-robin.
+- ~~Heartbeats + session timeouts.~~
+- ~~Join/Sync/Rebalance protocol states.~~
+- ~~Assignors: range and round-robin.~~
 - Durable group metadata and member generation IDs.
-- Offset commit validation against member generation.
-- Enforce unique member identity per group and reject duplicate joins safely.
+- ~~Offset commit validation against member generation.~~
+- ~~Enforce unique member identity per group and reject duplicate joins safely.~~
 
 **Exit Criteria**
 - Rebalance correctness under member joins/leaves/crashes.

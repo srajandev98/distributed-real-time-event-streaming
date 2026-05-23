@@ -138,6 +138,11 @@ func (s *Storage) Produce(topic string, key string, value string) (int, int) {
 	return partition, offset
 }
 
+// PartitionForKey returns the deterministic partition for a producer key.
+func (s *Storage) PartitionForKey(key string) int {
+	return getPartition(key, s.numPartitions)
+}
+
 func (s *Storage) writeLocalReplicas(topic string, partition int, segmentID int, line string) {
 	for replicaID := 1; replicaID <= s.localReplicaCount; replicaID++ {
 		path := s.replicaSegmentPath(topic, partition, replicaID, segmentID)

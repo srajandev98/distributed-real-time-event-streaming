@@ -86,3 +86,15 @@ export function parseJoinAssignments(payload: string): JoinResult['assigned'] {
     .map((v) => Number.parseInt(v, 10))
     .filter((v) => !Number.isNaN(v));
 }
+
+export function parseJoinGeneration(payload: string): number {
+  return extractIntField(payload, 'generation');
+}
+
+export function extractStringField(payload: string, key: string): string {
+  const match = payload.match(new RegExp(`${key}=([^\\s]+)`));
+  if (!match) {
+    throw new Error(`Field ${key} missing in payload: ${payload}`);
+  }
+  return match[1];
+}

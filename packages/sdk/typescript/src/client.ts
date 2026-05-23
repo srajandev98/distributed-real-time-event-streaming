@@ -3,22 +3,26 @@ import net from 'node:net';
 import { RTESProtocolError } from './errors';
 import { buildCommandLine, parseResponse } from './protocol';
 import {
+  extractStringField,
   extractIntField,
   mustGetPayload,
   parseBoolField,
   parseConsumedMessages,
   parseIntListField,
   parseJoinAssignments,
+  parseJoinGeneration,
 } from './parsers';
 import type {
   AckMode,
   ConsumedMessage,
   JoinResult,
+  PartitionRoleResult,
   PendingRequest,
   ProduceResult,
   ReplicaFetchResult,
   RTESClientOptions,
   RTESResponse,
+  SyncResult,
 } from './types';
 
 /**
@@ -123,14 +127,49 @@ export class RTESClient {
     return parseConsumedMessages(payload);
   }
 
-  async join(group: string, topic: string, consumerId: string): Promise<JoinResult> {
-    const resp = await this.sendCommand('JOIN', `${group} ${topic} ${consumerId}`);
+  async join(
+    group: string,
+    topic: string,
+    consumerId: string,
+    assignor?: 'round_robin' | 'range',
+  ): Promise<JoinResult> {
+    const assignorArg = assignor ? ` assignor=${assignor}` : '';
+    const resp = await this.sendCommand('JOIN', `${group} ${topic} ${consumerId}${assignorArg}`);
     const payload = mustGetPayload(resp, 'join response payload missing');
-    return { assigned: parseJoinAssignments(payload), raw: resp };
+    return {
+      generation: parseJoinGeneration(payload),
+      assigned: parseJoinAssignments(payload),
+      raw: resp,
+    };
   }
 
-  async commit(group: string, topic: string, partition: number, offset: number): Promise<boolean> {
-    const resp = await this.sendCommand('COMMIT', `${group} ${topic} ${partition} ${offset}`);
+  async sync(group: string, topic: string, consumerId: string, generation: number): Promise<SyncResult> {
+    const resp = await this.sendCommand('SYNC', `${group} ${topic} ${consumerId} ${generation}`);
+    const payload = mustGetPayload(resp, 'sync response payload missing');
+    return {
+      generation: parseJoinGeneration(payload),
+      assigned: parseJoinAssignments(payload),
+      raw: resp,
+    };
+  }
+
+  async heartbeat(group: string, topic: string, consumerId: string, generation: number): Promise<boolean> {
+    const resp = await this.sendCommand('HEARTBEAT', `${group} ${topic} ${consumerId} ${generation}`);
+    return mustGetPayload(resp, 'heartbeat response payload missing').includes('heartbeat=ok');
+  }
+
+  async commit(
+    group: string,
+    topic: string,
+    consumerId: string,
+    generation: number,
+    partition: number,
+    offset: number,
+  ): Promise<boolean> {
+    const resp = await this.sendCommand(
+      'COMMIT',
+      `${group} ${topic} ${consumerId} ${generation} ${partition} ${offset}`,
+    );
     return mustGetPayload(resp, 'commit response payload missing').includes('committed=true');
   }
 
@@ -153,6 +192,26 @@ export class RTESClient {
       highWatermark: extractIntField(payload, 'hw'),
       isr: parseIntListField(payload, 'isr'),
       underReplicated: parseBoolField(payload, 'under_replicated'),
+      raw: resp,
+    };
+  }
+
+  async setPartitionRole(
+    topic: string,
+    partition: number,
+    role: 'leader' | 'follower',
+  ): Promise<PartitionRoleResult> {
+    const resp = await this.sendCommand('SET_PARTITION_ROLE', `${topic} ${partition} ${role}`);
+    const payload = mustGetPayload(resp, 'set partition role payload missing');
+    const parsedRole = extractStringField(payload, 'role');
+    if (parsedRole !== 'leader' && parsedRole !== 'follower') {
+      throw new Error(`Invalid role in response payload: ${payload}`);
+    }
+    return {
+      topic: extractStringField(payload, 'topic'),
+      partition: extractIntField(payload, 'partition'),
+      role: parsedRole,
+      highWatermark: extractIntField(payload, 'hw'),
       raw: resp,
     };
   }

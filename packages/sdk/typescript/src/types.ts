@@ -29,7 +29,22 @@ export interface ConsumedMessage {
 }
 
 export interface JoinResult {
+  generation: number;
   assigned: number[];
+  raw: RTESResponse;
+}
+
+export interface SyncResult {
+  generation: number;
+  assigned: number[];
+  raw: RTESResponse;
+}
+
+export interface PartitionRoleResult {
+  topic: string;
+  partition: number;
+  role: 'leader' | 'follower';
+  highWatermark: number;
   raw: RTESResponse;
 }
 

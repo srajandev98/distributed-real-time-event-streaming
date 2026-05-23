@@ -35,6 +35,13 @@ class ConsumedMessage:
 
 @dataclass
 class JoinResult:
+    generation: int
+    assigned: list[int]
+    raw: RTESResponse
+
+@dataclass
+class SyncResult:
+    generation: int
     assigned: list[int]
     raw: RTESResponse
 
@@ -45,6 +52,14 @@ class ReplicaFetchResult:
     high_watermark: int
     isr: list[int]
     under_replicated: bool
+    raw: RTESResponse
+
+@dataclass
+class PartitionRoleResult:
+    topic: str
+    partition: int
+    role: str
+    high_watermark: int
     raw: RTESResponse
 
 
@@ -126,24 +141,56 @@ class RTESClient:
 
         return out
 
-    def join(self, group: str, topic: str, consumer_id: str) -> JoinResult:
-        resp = self.send_command("JOIN", f"{group} {topic} {consumer_id}")
+    def join(self, group: str, topic: str, consumer_id: str, assignor: Optional[str] = None) -> JoinResult:
+        if assignor is not None and assignor not in ("round_robin", "range"):
+            raise ValueError("assignor must be one of: 'round_robin', 'range'")
+        suffix = f" assignor={assignor}" if assignor is not None else ""
+        resp = self.send_command("JOIN", f"{group} {topic} {consumer_id}{suffix}")
         payload = self._must_payload(resp, "join response payload missing")
+        generation = self._extract_int_field(payload, "generation")
 
         start = payload.find("[")
         end = payload.find("]")
         if start == -1 or end == -1 or end <= start:
-            return JoinResult(assigned=[], raw=resp)
+            return JoinResult(generation=generation, assigned=[], raw=resp)
 
         body = payload[start + 1 : end].strip()
         if body == "":
-            return JoinResult(assigned=[], raw=resp)
+            return JoinResult(generation=generation, assigned=[], raw=resp)
 
         assigned = [int(v) for v in body.split()]
-        return JoinResult(assigned=assigned, raw=resp)
+        return JoinResult(generation=generation, assigned=assigned, raw=resp)
 
-    def commit(self, group: str, topic: str, partition: int, offset: int) -> bool:
-        resp = self.send_command("COMMIT", f"{group} {topic} {partition} {offset}")
+    def sync(self, group: str, topic: str, consumer_id: str, generation: int) -> SyncResult:
+        resp = self.send_command("SYNC", f"{group} {topic} {consumer_id} {generation}")
+        payload = self._must_payload(resp, "sync response payload missing")
+        parsed_generation = self._extract_int_field(payload, "generation")
+
+        start = payload.find("[")
+        end = payload.find("]")
+        if start == -1 or end == -1 or end <= start:
+            return SyncResult(generation=parsed_generation, assigned=[], raw=resp)
+        body = payload[start + 1 : end].strip()
+        if body == "":
+            return SyncResult(generation=parsed_generation, assigned=[], raw=resp)
+        assigned = [int(v) for v in body.split()]
+        return SyncResult(generation=parsed_generation, assigned=assigned, raw=resp)
+
+    def heartbeat(self, group: str, topic: str, consumer_id: str, generation: int) -> bool:
+        resp = self.send_command("HEARTBEAT", f"{group} {topic} {consumer_id} {generation}")
+        payload = self._must_payload(resp, "heartbeat response payload missing")
+        return "heartbeat=ok" in payload
+
+    def commit(
+        self,
+        group: str,
+        topic: str,
+        consumer_id: str,
+        generation: int,
+        partition: int,
+        offset: int,
+    ) -> bool:
+        resp = self.send_command("COMMIT", f"{group} {topic} {consumer_id} {generation} {partition} {offset}")
         payload = self._must_payload(resp, "commit response payload missing")
         return "committed=true" in payload
 
@@ -161,6 +208,22 @@ class RTESClient:
             high_watermark=self._extract_int_field(payload, "hw"),
             isr=self._extract_int_list_field(payload, "isr"),
             under_replicated=self._extract_bool_field(payload, "under_replicated"),
+            raw=resp,
+        )
+
+    def set_partition_role(self, topic: str, partition: int, role: str) -> PartitionRoleResult:
+        if role not in ("leader", "follower"):
+            raise ValueError("role must be one of: 'leader', 'follower'")
+        resp = self.send_command("SET_PARTITION_ROLE", f"{topic} {partition} {role}")
+        payload = self._must_payload(resp, "set partition role payload missing")
+        parsed_role = self._extract_string_field(payload, "role")
+        if parsed_role not in ("leader", "follower"):
+            raise ValueError(f"Invalid role in payload: {payload}")
+        return PartitionRoleResult(
+            topic=self._extract_string_field(payload, "topic"),
+            partition=self._extract_int_field(payload, "partition"),
+            role=parsed_role,
+            high_watermark=self._extract_int_field(payload, "hw"),
             raw=resp,
         )
 
@@ -274,3 +337,11 @@ class RTESClient:
         if value == "false":
             return False
         raise ValueError(f"Invalid boolean for {key}: {payload}")
+
+    @staticmethod
+    def _extract_string_field(payload: str, key: str) -> str:
+        token = f"{key}="
+        start = payload.find(token)
+        if start == -1:
+            raise ValueError(f"Field {key} missing in payload: {payload}")
+        return payload[start + len(token) :].split()[0].strip()

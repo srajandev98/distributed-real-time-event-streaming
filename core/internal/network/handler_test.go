@@ -83,11 +83,11 @@ func TestHandleFlowProduceConsumeOffsetCommit(t *testing.T) {
 
 	join := &protocol.Request{Version: "V1", CorrelationID: "5", Command: "JOIN", Args: []string{"g1", "orders", "c1"}}
 	joinResp := handleRequest(join, b)
-	if !strings.Contains(joinResp, "|OK|assigned=") {
+	if !strings.Contains(joinResp, "|OK|generation=") || !strings.Contains(joinResp, "assigned=") {
 		t.Fatalf("unexpected join response: %s", joinResp)
 	}
 
-	commit := &protocol.Request{Version: "V1", CorrelationID: "6", Command: "COMMIT", Args: []string{"g1", "orders", "0", "1"}}
+	commit := &protocol.Request{Version: "V1", CorrelationID: "6", Command: "COMMIT", Args: []string{"g1", "orders", "c1", "2", "0", "1"}}
 	commitResp := handleRequest(commit, b)
 	if !strings.Contains(commitResp, "|OK|committed=true") {
 		t.Fatalf("unexpected commit response: %s", commitResp)
@@ -97,6 +97,34 @@ func TestHandleFlowProduceConsumeOffsetCommit(t *testing.T) {
 	offsetResp := handleRequest(offset, b)
 	if !strings.Contains(offsetResp, "|OK|offset=1") {
 		t.Fatalf("unexpected offset response: %s", offsetResp)
+	}
+}
+
+func TestHeartbeatAndSyncCommands(t *testing.T) {
+	b := newTestBroker(t)
+
+	join := &protocol.Request{Version: "V1", CorrelationID: "20", Command: "JOIN", Args: []string{"g1", "orders", "c1"}}
+	joinResp := handleRequest(join, b)
+	if !strings.Contains(joinResp, "|OK|generation=2") {
+		t.Fatalf("unexpected join response: %s", joinResp)
+	}
+
+	hb := &protocol.Request{Version: "V1", CorrelationID: "21", Command: "HEARTBEAT", Args: []string{"g1", "orders", "c1", "2"}}
+	hbResp := handleRequest(hb, b)
+	if !strings.Contains(hbResp, "|OK|heartbeat=ok") {
+		t.Fatalf("unexpected heartbeat response: %s", hbResp)
+	}
+
+	sync := &protocol.Request{Version: "V1", CorrelationID: "22", Command: "SYNC", Args: []string{"g1", "orders", "c1", "2"}}
+	syncResp := handleRequest(sync, b)
+	if !strings.Contains(syncResp, "|OK|generation=2") {
+		t.Fatalf("unexpected sync response: %s", syncResp)
+	}
+
+	staleHB := &protocol.Request{Version: "V1", CorrelationID: "23", Command: "HEARTBEAT", Args: []string{"g1", "orders", "c1", "1"}}
+	staleHBResp := handleRequest(staleHB, b)
+	if !strings.Contains(staleHBResp, "|ERR|GENERATION_MISMATCH|") {
+		t.Fatalf("expected generation mismatch, got: %s", staleHBResp)
 	}
 }
 
@@ -162,5 +190,55 @@ func TestProduceAcksAllTimeoutThenSucceedsAfterReplicaFetch(t *testing.T) {
 	respAll := handleRequest(produceAll, b)
 	if !strings.Contains(respAll, "|OK|partition=") {
 		t.Fatalf("expected acks=all success, got: %s", respAll)
+	}
+}
+
+func TestSetPartitionRoleBlocksAndRestoresProduce(t *testing.T) {
+	b := newTestBroker(t)
+	key := "user-role"
+	partition := b.Storage.PartitionForKey(key)
+
+	setFollower := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "13",
+		Command:       "SET_PARTITION_ROLE",
+		Args:          []string{"orders", strconv.Itoa(partition), "follower"},
+	}
+	setFollowerResp := handleRequest(setFollower, b)
+	if !strings.Contains(setFollowerResp, "|OK|topic=orders") {
+		t.Fatalf("expected role update success, got: %s", setFollowerResp)
+	}
+
+	produceWhileFollower := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "14",
+		Command:       "PRODUCE",
+		Args:          []string{"orders", key + ":created"},
+	}
+	produceFollowerResp := handleRequest(produceWhileFollower, b)
+	if !strings.Contains(produceFollowerResp, "|ERR|NOT_LEADER|") {
+		t.Fatalf("expected NOT_LEADER while follower, got: %s", produceFollowerResp)
+	}
+
+	setLeader := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "15",
+		Command:       "SET_PARTITION_ROLE",
+		Args:          []string{"orders", strconv.Itoa(partition), "leader"},
+	}
+	setLeaderResp := handleRequest(setLeader, b)
+	if !strings.Contains(setLeaderResp, "|OK|topic=orders") {
+		t.Fatalf("expected role update to leader success, got: %s", setLeaderResp)
+	}
+
+	produceAsLeader := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "16",
+		Command:       "PRODUCE",
+		Args:          []string{"orders", key + ":created"},
+	}
+	produceLeaderResp := handleRequest(produceAsLeader, b)
+	if !strings.Contains(produceLeaderResp, "|OK|partition=") {
+		t.Fatalf("expected produce success after leader transition, got: %s", produceLeaderResp)
 	}
 }
