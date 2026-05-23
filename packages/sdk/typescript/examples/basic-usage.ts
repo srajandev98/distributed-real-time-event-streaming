@@ -1,4 +1,4 @@
-import { RTESClient } from '../dist';
+import { RTESKafka } from '../dist';
 
 const config = {
   host: process.env.RTES_HOST || '127.0.0.1',
@@ -12,64 +12,53 @@ const config = {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function withRetry<T>(operationName: string, fn: () => Promise<T>, maxRetries = 3): Promise<T> {
-  let attempt = 0;
-  while (attempt <= maxRetries) {
-    try {
-      return await fn();
-    } catch (err) {
-      attempt += 1;
-      if (attempt > maxRetries) {
-        throw err;
-      }
-      const backoffMs = 250 * attempt;
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(`${operationName} failed (attempt ${attempt}/${maxRetries + 1}): ${message}`);
-      await sleep(backoffMs);
-    }
-  }
-  throw new Error(`unreachable retry state for operation: ${operationName}`);
-}
-
 async function main() {
-  const client = new RTESClient({
+  const kafka = new RTESKafka({
     host: config.host,
     port: config.port,
     timeoutMs: config.timeoutMs,
   });
-  let heartbeatTimer: NodeJS.Timeout | null = null;
-  let stopping = false;
-  let generation = 0;
+  const producer = kafka.producer({
+    maxRetries: 5,
+    retryBackoffMs: 200,
+    batchSize: 200,
+    lingerMs: 5,
+  });
+  const consumer = kafka.consumer({
+    groupId: config.group,
+    consumerId: config.consumerId,
+    assignor: 'round_robin',
+    heartbeatIntervalMs: config.heartbeatIntervalMs,
+    pollIntervalMs: 500,
+    autoCommit: true,
+    autoRejoin: true,
+    maxRetries: 5,
+    retryBackoffMs: 200,
+    onAssign: (partitions) => {
+      console.log('Assigned partitions:', partitions);
+    },
+    onRevoke: (partitions) => {
+      console.log('Revoked partitions:', partitions);
+    },
+    onCrash: (error) => {
+      console.error('Consumer crashed:', error);
+    },
+  });
 
-  const stopHeartbeat = () => {
-    if (heartbeatTimer) {
-      clearInterval(heartbeatTimer);
-      heartbeatTimer = null;
-    }
-  };
+  let stopping = false;
 
   const safeShutdown = async (signalOrReason: string): Promise<void> => {
     if (stopping) {
       return;
     }
     stopping = true;
-    stopHeartbeat();
     console.log(`\nShutting down (${signalOrReason})...`);
     try {
-      if (generation > 0) {
-        try {
-          await client.leave(config.group, config.topic, config.consumerId, generation);
-          console.log('Left consumer group');
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.warn(`Leave failed during shutdown: ${message}`);
-        }
-      }
-      await client.close();
-      console.log('Connection closed');
+      await consumer.disconnect();
+      console.log('Consumer disconnected');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error('Close error:', message);
+      console.error('Shutdown error:', message);
     }
   };
 
@@ -80,73 +69,24 @@ async function main() {
     void safeShutdown('SIGTERM').finally(() => process.exit(0));
   });
 
-  await withRetry('connect', () => client.connect(), 5);
-  console.log(`Connected to RTES broker at ${config.host}:${config.port}`);
+  await producer.send({
+    topic: config.topic,
+    messages: [{ key: 'user1', value: `created-at-${Date.now()}` }],
+    acks: '1',
+  });
+  console.log('Produced one test message');
 
-  const produced = await withRetry('produce', () =>
-    client.produce(config.topic, 'user1', `created-at-${Date.now()}`, '1'),
-  );
-  console.log('Produced:', produced);
+  await consumer.subscribe({ topic: config.topic });
+  const runPromise = consumer.run({
+    eachMessage: async ({ topic, partition, message }) => {
+      console.log(`[${topic}] partition=${partition} offset=${message.offset} value=${message.value}`);
+    },
+  });
 
-  const join = await withRetry('join', () =>
-    client.join(config.group, config.topic, config.consumerId, 'round_robin'),
-  );
-  generation = join.generation;
-  console.log('Join generation:', generation);
-  console.log('Assigned partitions:', join.assigned);
-
-  const synced = await withRetry('sync', () =>
-    client.sync(config.group, config.topic, config.consumerId, generation),
-  );
-  generation = synced.generation;
-  console.log('Sync generation:', generation);
-  console.log('Sync assignment:', synced.assigned);
-
-  heartbeatTimer = setInterval(() => {
-    void client
-      .heartbeat(config.group, config.topic, config.consumerId, generation)
-      .catch((err) => {
-        // In production this should trigger rejoin logic.
-        const message = err instanceof Error ? err.message : String(err);
-        console.error('Heartbeat failed:', message);
-      });
-  }, config.heartbeatIntervalMs);
-
-  for (const partition of synced.assigned) {
-    const startOffset = await withRetry('offset', () =>
-      client.offset(config.group, config.topic, partition),
-    );
-    const messages = await withRetry('consume', () =>
-      client.consume(config.topic, partition, startOffset),
-    );
-
-    console.log(`Partition ${partition} startOffset=${startOffset} messages=`, messages);
-
-    if (messages.length === 0) {
-      continue;
-    }
-
-    const nextOffset = messages[messages.length - 1].offset + 1;
-    const committed = await withRetry('commit', () =>
-      client.commit(
-        config.group,
-        config.topic,
-        config.consumerId,
-        generation,
-        partition,
-        nextOffset,
-      ),
-    );
-    console.log(`Partition ${partition} commit status:`, committed);
-
-    const committedOffset = await withRetry('offset', () =>
-      client.offset(config.group, config.topic, partition),
-    );
-    console.log(`Partition ${partition} committed offset:`, committedOffset);
-  }
-
-  stopHeartbeat();
+  // Keep the example finite: run consumer briefly then shutdown.
+  await sleep(3000);
   await safeShutdown('completed');
+  await runPromise;
 }
 
 main().catch((err) => {

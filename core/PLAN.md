@@ -89,6 +89,11 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 - ~~Durable group metadata and member generation IDs.~~
 - ~~Offset commit validation against member generation.~~
 - ~~Enforce unique member identity per group and reject duplicate joins safely.~~
+- ~~TypeScript SDK: Kafka-style `producer.send(...)` and `consumer.subscribe(...)/run(...)` APIs.~~
+- ~~TypeScript SDK: automatic consumer lifecycle management (join/sync/heartbeat/leave/commit).~~
+- ~~TypeScript SDK: rebalance and crash hooks (`onAssign`, `onRevoke`, `onCrash`).~~
+- ~~TypeScript SDK: producer/consumer retry and backoff controls.~~
+- Python SDK: high-level Kafka-style producer/consumer runtime APIs (to mirror TypeScript ergonomics).
 
 **Exit Criteria**
 - Rebalance correctness under member joins/leaves/crashes.

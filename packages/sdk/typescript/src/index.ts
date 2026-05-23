@@ -1,4 +1,5 @@
 export { RTESClient } from './client';
+export { RTESKafka } from './kafka';
 export { RTESProtocolError } from './errors';
 
 export type {
@@ -12,3 +13,13 @@ export type {
   PartitionRoleResult,
   ReplicaFetchResult,
 } from './types';
+
+export type {
+  RTESKafkaOptions,
+  RTESProducer,
+  RTESConsumer,
+  ProducerSendParams,
+  ConsumerRunConfig,
+  ConsumerRunContext,
+  RTESConsumerOptions,
+} from './kafka';
