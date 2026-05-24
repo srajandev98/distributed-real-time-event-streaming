@@ -104,8 +104,8 @@ This document is the execution roadmap for evolving `Flux` into a production-gra
 
 - ~~Build controller service with Raft-based metadata store (scaffolded in `internal/controlplane`).~~
 - ~~Migrate topic/partition metadata from local state to quorum (runtime path now reads/controller-bootstraps topic+partition metadata via `EnsureTopicMetadata`).~~
-- Implement leader election for partitions.
-- Add broker registration, health, and fencing.
+- ~~Implement leader election for partitions.~~
+- ~~Add broker registration, health, and fencing.~~
 - ~~Add cluster metadata and health admin APIs (topic lifecycle + broker state) - TCP admin command scaffold (`ADMIN_*`) added in `internal/network`.~~
 
 **Exit Criteria**
@@ -113,7 +113,34 @@ This document is the execution roadmap for evolving `Flux` into a production-gra
 - Cluster can recover leadership after node restart.
 - Admin operations (create topic, alter configs) are consistent.
 
-## Phase 5: Security and Multi-Tenancy (2-4 weeks)
+## Phase 5: Real Distributed Cluster Runtime (4-8 weeks)
+
+- Implement real broker-to-broker network replication across separate nodes.
+- Run leader/follower replicas as independent broker processes (not same-node mirror files).
+- Add fetch/append replication pipeline with backpressure and retry semantics.
+- Enforce committed-read visibility based on replicated high watermark across nodes.
+- Validate real failover behavior: leader crash -> election -> follower promotion -> continued produce/consume.
+- Add multi-node cluster bootstrap configuration (broker IDs, peer list, advertised listeners).
+
+**Exit Criteria**
+- Multi-node cluster (3+ brokers) replicates data across networked nodes.
+- Follower promotion after leader failure works in automated integration tests.
+- Produce/consume remains available through single-node failures within supported quorum limits.
+
+## Phase 6: Durable Controller Quorum (4-8 weeks)
+
+- Replace in-memory controller store with durable replicated consensus log across controller nodes.
+- Implement real Raft roles/transport (leader, follower, candidate) with term/index safety.
+- Persist snapshots + log segments for metadata recovery after restarts.
+- Add controller failover handling with linearizable metadata writes.
+- Add broker/controller fencing semantics tied to controller epoch and leadership term.
+
+**Exit Criteria**
+- Controller metadata survives node restarts and controller failover.
+- Metadata writes are consistent under leader changes.
+- Broker/controller fencing behavior prevents split-brain metadata mutations.
+
+## Phase 7: Security and Multi-Tenancy (2-4 weeks)
 
 - TLS for client-broker and broker-broker traffic.
 - SASL auth (start with SCRAM).
@@ -125,7 +152,7 @@ This document is the execution roadmap for evolving `Flux` into a production-gra
 - Encrypted traffic verified end-to-end.
 - Quota enforcement validated by load tests.
 
-## Phase 6: Observability and Operations (2-3 weeks)
+## Phase 8: Observability and Operations (2-3 weeks)
 
 - Prometheus metrics and OpenTelemetry traces.
 - Structured logs with request correlation.
@@ -138,7 +165,7 @@ This document is the execution roadmap for evolving `Flux` into a production-gra
 - Common incident workflows documented and tested.
 - On-call playbook available for top failure modes.
 
-## Phase 7: Performance and Scale Validation (ongoing)
+## Phase 9: Performance and Scale Validation (ongoing)
 
 - Benchmark harness (produce/fetch throughput, p99 latency).
 - Soak tests (24h+), chaos tests, and fault injection.
@@ -170,8 +197,9 @@ This document is the execution roadmap for evolving `Flux` into a production-gra
 - **M1 (Prototype Hardening):** End of Phase 0-1
 - **M2 (HA Data Plane):** End of Phase 2-3
 - **M3 (Clustered Control Plane):** End of Phase 4
-- **M4 (Prod Readiness):** End of Phase 5-6
-- **M5 (Scale Validation):** Phase 7 targets met
+- **M4 (Real Distributed Runtime):** End of Phase 5-6
+- **M5 (Prod Readiness):** End of Phase 7-8
+- **M6 (Scale Validation):** Phase 9 targets met
 
 ## 9. Immediate Backlog (Next 2 Weeks)
 

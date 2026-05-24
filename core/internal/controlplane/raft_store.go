@@ -48,6 +48,7 @@ func (s *RaftMetadataStore) Apply(cmd Command) (ApplyResult, error) {
 			return ApplyResult{}, fmt.Errorf("broker not found: %d", cmd.BrokerHeartbeat.BrokerID)
 		}
 		b.LastHeartbeat = time.Now().UTC()
+		b.Fenced = false
 		s.metadata.Brokers[b.ID] = b
 	case CommandSetPartitionLeader:
 		update := cmd.PartitionLeader
@@ -65,6 +66,14 @@ func (s *RaftMetadataStore) Apply(cmd Command) (ApplyResult, error) {
 		}
 		topic.Partitions[update.Partition] = partition
 		s.metadata.Topics[update.Topic] = topic
+	case CommandSetBrokerFence:
+		update := cmd.BrokerFence
+		broker, ok := s.metadata.Brokers[update.BrokerID]
+		if !ok {
+			return ApplyResult{}, fmt.Errorf("broker not found: %d", update.BrokerID)
+		}
+		broker.Fenced = update.Fenced
+		s.metadata.Brokers[broker.ID] = broker
 	}
 
 	s.index++

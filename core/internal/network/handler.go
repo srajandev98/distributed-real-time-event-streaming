@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"flux/internal/broker"
 	"flux/internal/logging"
@@ -69,8 +70,16 @@ func handleRequest(req *protocol.Request, b *broker.Broker) string {
 		return handleAdminRegisterBroker(req, b)
 	case "ADMIN_BROKER_HEARTBEAT":
 		return handleAdminBrokerHeartbeat(req, b)
+	case "ADMIN_RECONCILE_BROKER_HEALTH":
+		return handleAdminReconcileBrokerHealth(req, b)
+	case "ADMIN_FENCE_BROKER":
+		return handleAdminFenceBroker(req, b)
+	case "ADMIN_UNFENCE_BROKER":
+		return handleAdminUnfenceBroker(req, b)
 	case "ADMIN_SET_PARTITION_LEADER":
 		return handleAdminSetPartitionLeader(req, b)
+	case "ADMIN_ELECT_TOPIC_LEADERS":
+		return handleAdminElectTopicLeaders(req, b)
 	case "ADMIN_GET_METADATA":
 		return handleAdminGetMetadata(req, b)
 	default:
@@ -442,6 +451,51 @@ func handleAdminBrokerHeartbeat(req *protocol.Request, b *broker.Broker) string 
 	return protocol.Ok(req.CorrelationID, fmt.Sprintf("broker_id=%d heartbeat=ok term=%d index=%d", brokerID, result.Term, result.Index))
 }
 
+func handleAdminReconcileBrokerHealth(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 1 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "ADMIN_RECONCILE_BROKER_HEALTH requires: <timeout_ms>")
+	}
+	timeoutMs, err := protocol.ParseInt(req.Args[0], "timeout_ms")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	changes, err := b.Controller.ReconcileBrokerHealth(time.Duration(timeoutMs) * time.Millisecond)
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("reconciled=%d", changes))
+}
+
+func handleAdminFenceBroker(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 1 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "ADMIN_FENCE_BROKER requires: <broker_id>")
+	}
+	brokerID, err := protocol.ParseInt(req.Args[0], "broker_id")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	result, err := b.Controller.SetBrokerFence(brokerID, true)
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("broker_id=%d fenced=true term=%d index=%d", brokerID, result.Term, result.Index))
+}
+
+func handleAdminUnfenceBroker(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 1 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "ADMIN_UNFENCE_BROKER requires: <broker_id>")
+	}
+	brokerID, err := protocol.ParseInt(req.Args[0], "broker_id")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	result, err := b.Controller.SetBrokerFence(brokerID, false)
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("broker_id=%d fenced=false term=%d index=%d", brokerID, result.Term, result.Index))
+}
+
 func handleAdminSetPartitionLeader(req *protocol.Request, b *broker.Broker) string {
 	if len(req.Args) != 4 {
 		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "ADMIN_SET_PARTITION_LEADER requires: <topic> <partition> <leader_id> <isr_csv>")
@@ -465,6 +519,17 @@ func handleAdminSetPartitionLeader(req *protocol.Request, b *broker.Broker) stri
 	return protocol.Ok(req.CorrelationID, fmt.Sprintf("topic=%s partition=%d leader=%d isr=%v term=%d index=%d", req.Args[0], partition, leaderID, isr, result.Term, result.Index))
 }
 
+func handleAdminElectTopicLeaders(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 1 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "ADMIN_ELECT_TOPIC_LEADERS requires: <topic>")
+	}
+	changes, err := b.Controller.ElectTopicLeaders(req.Args[0])
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("topic=%s elected_changes=%d", req.Args[0], changes))
+}
+
 func handleAdminGetMetadata(req *protocol.Request, b *broker.Broker) string {
 	if len(req.Args) != 0 {
 		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "ADMIN_GET_METADATA requires no args")
@@ -481,8 +546,13 @@ func handleAdminGetMetadata(req *protocol.Request, b *broker.Broker) string {
 		brokerIDs = append(brokerIDs, id)
 	}
 	sort.Ints(brokerIDs)
-
-	return protocol.Ok(req.CorrelationID, fmt.Sprintf("topics=%v brokers=%v", topicNames, brokerIDs))
+	fenced := make([]int, 0, len(s.Brokers))
+	for _, id := range brokerIDs {
+		if s.Brokers[id].Fenced {
+			fenced = append(fenced, id)
+		}
+	}
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("topics=%v brokers=%v fenced=%v", topicNames, brokerIDs, fenced))
 }
 
 func parseCSVInts(raw string) ([]int, error) {

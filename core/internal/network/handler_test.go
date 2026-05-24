@@ -394,3 +394,66 @@ func TestProduceMigratesTopicMetadataToController(t *testing.T) {
 		}
 	}
 }
+
+func TestAdminFencingHealthAndElectionFlow(t *testing.T) {
+	b := newTestBroker(t)
+
+	createTopic := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "70",
+		Command:       "ADMIN_CREATE_TOPIC",
+		Args:          []string{"election", "2", "2"},
+	}
+	if resp := handleRequest(createTopic, b); !strings.Contains(resp, "|OK|topic=election") {
+		t.Fatalf("unexpected create topic response: %s", resp)
+	}
+	if resp := handleRequest(&protocol.Request{
+		Version:       "V1",
+		CorrelationID: "71",
+		Command:       "ADMIN_REGISTER_BROKER",
+		Args:          []string{"1", "127.0.0.1", "9093"},
+	}, b); !strings.Contains(resp, "|OK|broker_id=1") {
+		t.Fatalf("unexpected register broker response: %s", resp)
+	}
+	if resp := handleRequest(&protocol.Request{
+		Version:       "V1",
+		CorrelationID: "72",
+		Command:       "ADMIN_SET_PARTITION_LEADER",
+		Args:          []string{"election", "0", "0", "0,1"},
+	}, b); !strings.Contains(resp, "|OK|topic=election partition=0 leader=0") {
+		t.Fatalf("unexpected set leader response: %s", resp)
+	}
+
+	if resp := handleRequest(&protocol.Request{
+		Version:       "V1",
+		CorrelationID: "73",
+		Command:       "ADMIN_FENCE_BROKER",
+		Args:          []string{"0"},
+	}, b); !strings.Contains(resp, "|OK|broker_id=0 fenced=true") {
+		t.Fatalf("unexpected fence response: %s", resp)
+	}
+
+	if resp := handleRequest(&protocol.Request{
+		Version:       "V1",
+		CorrelationID: "74",
+		Command:       "ADMIN_ELECT_TOPIC_LEADERS",
+		Args:          []string{"election"},
+	}, b); !strings.Contains(resp, "|OK|topic=election elected_changes=") {
+		t.Fatalf("unexpected elect response: %s", resp)
+	}
+
+	snapshot := b.Controller.Snapshot()
+	if snapshot.Topics["election"].Partitions[0].LeaderID != 1 {
+		t.Fatalf("expected leader failover to broker 1, got=%d", snapshot.Topics["election"].Partitions[0].LeaderID)
+	}
+
+	// Reconcile with an aggressive timeout should fence stale brokers.
+	if resp := handleRequest(&protocol.Request{
+		Version:       "V1",
+		CorrelationID: "75",
+		Command:       "ADMIN_RECONCILE_BROKER_HEALTH",
+		Args:          []string{"1"},
+	}, b); !strings.Contains(resp, "|OK|reconciled=") {
+		t.Fatalf("unexpected reconcile response: %s", resp)
+	}
+}

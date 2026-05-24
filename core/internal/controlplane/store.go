@@ -10,6 +10,7 @@ const (
 	CommandRegisterBroker     CommandType = "REGISTER_BROKER"
 	CommandBrokerHeartbeat    CommandType = "BROKER_HEARTBEAT"
 	CommandSetPartitionLeader CommandType = "SET_PARTITION_LEADER"
+	CommandSetBrokerFence     CommandType = "SET_BROKER_FENCE"
 )
 
 // ApplyResult captures the logical consensus position after applying a command.
@@ -26,6 +27,7 @@ type Command struct {
 	Broker          *BrokerMetadata
 	BrokerHeartbeat *BrokerHeartbeat
 	PartitionLeader *PartitionLeaderUpdate
+	BrokerFence     *BrokerFenceUpdate
 }
 
 // BrokerHeartbeat updates broker liveness metadata.
@@ -39,6 +41,12 @@ type PartitionLeaderUpdate struct {
 	Partition int
 	LeaderID  int
 	ISR       []int
+}
+
+// BrokerFenceUpdate toggles broker fenced state.
+type BrokerFenceUpdate struct {
+	BrokerID int
+	Fenced   bool
 }
 
 // MetadataStore abstracts consensus-backed metadata persistence.
@@ -64,6 +72,10 @@ func validateCommand(cmd Command) error {
 	case CommandSetPartitionLeader:
 		if cmd.PartitionLeader == nil || cmd.PartitionLeader.Topic == "" || cmd.PartitionLeader.Partition < 0 {
 			return fmt.Errorf("invalid set partition leader command")
+		}
+	case CommandSetBrokerFence:
+		if cmd.BrokerFence == nil || cmd.BrokerFence.BrokerID < 0 {
+			return fmt.Errorf("invalid set broker fence command")
 		}
 	default:
 		return fmt.Errorf("unknown command type: %s", cmd.Type)

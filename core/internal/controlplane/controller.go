@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -89,8 +90,8 @@ func (c *Controller) SetPartitionLeader(topic string, partition int, leaderID in
 	if partition < 0 {
 		return ApplyResult{}, fmt.Errorf("partition must be >= 0")
 	}
-	if leaderID < 0 {
-		return ApplyResult{}, fmt.Errorf("leader id must be >= 0")
+	if leaderID < -1 {
+		return ApplyResult{}, fmt.Errorf("leader id must be >= -1")
 	}
 	return c.store.Apply(Command{
 		Type: CommandSetPartitionLeader,
@@ -101,6 +102,111 @@ func (c *Controller) SetPartitionLeader(topic string, partition int, leaderID in
 			ISR:       append([]int(nil), isr...),
 		},
 	})
+}
+
+func (c *Controller) SetBrokerFence(brokerID int, fenced bool) (ApplyResult, error) {
+	if brokerID < 0 {
+		return ApplyResult{}, fmt.Errorf("broker id must be >= 0")
+	}
+	return c.store.Apply(Command{
+		Type: CommandSetBrokerFence,
+		BrokerFence: &BrokerFenceUpdate{
+			BrokerID: brokerID,
+			Fenced:   fenced,
+		},
+	})
+}
+
+func (c *Controller) ReconcileBrokerHealth(timeout time.Duration) (int, error) {
+	if timeout <= 0 {
+		return 0, fmt.Errorf("timeout must be > 0")
+	}
+	now := time.Now().UTC()
+	snapshot := c.store.Snapshot()
+	ids := make([]int, 0, len(snapshot.Brokers))
+	for id := range snapshot.Brokers {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+
+	changes := 0
+	for _, id := range ids {
+		b := snapshot.Brokers[id]
+		stale := b.LastHeartbeat.IsZero() || now.Sub(b.LastHeartbeat) > timeout
+		targetFenced := stale
+		if b.Fenced != targetFenced {
+			if _, err := c.SetBrokerFence(id, targetFenced); err != nil {
+				return changes, err
+			}
+			changes++
+		}
+	}
+	return changes, nil
+}
+
+func (c *Controller) ElectTopicLeaders(topic string) (int, error) {
+	if topic == "" {
+		return 0, fmt.Errorf("topic is required")
+	}
+	snapshot := c.store.Snapshot()
+	topicMeta, ok := snapshot.Topics[topic]
+	if !ok {
+		return 0, fmt.Errorf("topic not found: %s", topic)
+	}
+
+	partitionIDs := make([]int, 0, len(topicMeta.Partitions))
+	for pid := range topicMeta.Partitions {
+		partitionIDs = append(partitionIDs, pid)
+	}
+	sort.Ints(partitionIDs)
+
+	changes := 0
+	for _, pid := range partitionIDs {
+		partition := topicMeta.Partitions[pid]
+		targetLeader := partition.LeaderID
+
+		if !isBrokerEligible(snapshot.Brokers, targetLeader) {
+			targetLeader = electFromReplicas(snapshot.Brokers, partition.Replicas)
+		}
+		if targetLeader != partition.LeaderID {
+			isr := selectEligibleReplicas(snapshot.Brokers, partition.Replicas)
+			if len(isr) == 0 && targetLeader >= 0 {
+				isr = []int{targetLeader}
+			}
+			if _, err := c.SetPartitionLeader(topic, pid, targetLeader, isr); err != nil {
+				return changes, err
+			}
+			changes++
+		}
+	}
+	return changes, nil
+}
+
+func isBrokerEligible(brokers map[int]BrokerMetadata, brokerID int) bool {
+	broker, ok := brokers[brokerID]
+	if !ok {
+		return false
+	}
+	return !broker.Fenced
+}
+
+func electFromReplicas(brokers map[int]BrokerMetadata, replicas []int) int {
+	for _, replicaID := range replicas {
+		if isBrokerEligible(brokers, replicaID) {
+			return replicaID
+		}
+	}
+	return -1
+}
+
+func selectEligibleReplicas(brokers map[int]BrokerMetadata, replicas []int) []int {
+	out := make([]int, 0, len(replicas))
+	for _, replicaID := range replicas {
+		if isBrokerEligible(brokers, replicaID) {
+			out = append(out, replicaID)
+		}
+	}
+	return out
 }
 
 func (c *Controller) Snapshot() MetadataSnapshot {
