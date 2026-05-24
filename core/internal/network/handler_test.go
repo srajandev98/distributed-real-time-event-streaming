@@ -269,3 +269,100 @@ func TestSetPartitionRoleBlocksAndRestoresProduce(t *testing.T) {
 		t.Fatalf("expected produce success after leader transition, got: %s", produceLeaderResp)
 	}
 }
+
+func TestAdminControlPlaneFlow(t *testing.T) {
+	b := newTestBroker(t)
+
+	createTopic := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "40",
+		Command:       "ADMIN_CREATE_TOPIC",
+		Args:          []string{"payments", "2", "2"},
+	}
+	createTopicResp := handleRequest(createTopic, b)
+	if !strings.Contains(createTopicResp, "|OK|topic=payments") {
+		t.Fatalf("unexpected create topic response: %s", createTopicResp)
+	}
+
+	registerBroker0 := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "41",
+		Command:       "ADMIN_REGISTER_BROKER",
+		Args:          []string{"0", "127.0.0.1", "9092"},
+	}
+	registerBrokerResp0 := handleRequest(registerBroker0, b)
+	if !strings.Contains(registerBrokerResp0, "|OK|broker_id=0") {
+		t.Fatalf("unexpected register broker0 response: %s", registerBrokerResp0)
+	}
+
+	registerBroker1 := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "42",
+		Command:       "ADMIN_REGISTER_BROKER",
+		Args:          []string{"1", "127.0.0.1", "9093", "100"},
+	}
+	registerBrokerResp1 := handleRequest(registerBroker1, b)
+	if !strings.Contains(registerBrokerResp1, "|OK|broker_id=1") {
+		t.Fatalf("unexpected register broker1 response: %s", registerBrokerResp1)
+	}
+
+	setLeader := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "43",
+		Command:       "ADMIN_SET_PARTITION_LEADER",
+		Args:          []string{"payments", "1", "1", "1,0"},
+	}
+	setLeaderResp := handleRequest(setLeader, b)
+	if !strings.Contains(setLeaderResp, "|OK|topic=payments partition=1 leader=1") {
+		t.Fatalf("unexpected set leader response: %s", setLeaderResp)
+	}
+
+	heartbeat := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "44",
+		Command:       "ADMIN_BROKER_HEARTBEAT",
+		Args:          []string{"1"},
+	}
+	heartbeatResp := handleRequest(heartbeat, b)
+	if !strings.Contains(heartbeatResp, "|OK|broker_id=1 heartbeat=ok") {
+		t.Fatalf("unexpected heartbeat response: %s", heartbeatResp)
+	}
+
+	metadata := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "45",
+		Command:       "ADMIN_GET_METADATA",
+		Args:          []string{},
+	}
+	metadataResp := handleRequest(metadata, b)
+	if !strings.Contains(metadataResp, "|OK|topics=[payments]") {
+		t.Fatalf("unexpected metadata response: %s", metadataResp)
+	}
+	if !strings.Contains(metadataResp, "brokers=[0 1]") {
+		t.Fatalf("metadata response missing brokers: %s", metadataResp)
+	}
+}
+
+func TestAdminValidationErrors(t *testing.T) {
+	b := newTestBroker(t)
+
+	createBad := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "50",
+		Command:       "ADMIN_CREATE_TOPIC",
+		Args:          []string{"payments", "x", "2"},
+	}
+	if resp := handleRequest(createBad, b); !strings.Contains(resp, "|ERR|BAD_REQUEST|") {
+		t.Fatalf("expected BAD_REQUEST for invalid partition count, got: %s", resp)
+	}
+
+	setLeaderBad := &protocol.Request{
+		Version:       "V1",
+		CorrelationID: "51",
+		Command:       "ADMIN_SET_PARTITION_LEADER",
+		Args:          []string{"payments", "0", "1", "bad,isr"},
+	}
+	if resp := handleRequest(setLeaderBad, b); !strings.Contains(resp, "|ERR|BAD_REQUEST|") {
+		t.Fatalf("expected BAD_REQUEST for invalid isr list, got: %s", resp)
+	}
+}

@@ -106,7 +106,7 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 - Migrate topic/partition metadata from local state to quorum.
 - Implement leader election for partitions.
 - Add broker registration, health, and fencing.
-- Add cluster metadata and health admin APIs (topic lifecycle + broker state).
+- ~~Add cluster metadata and health admin APIs (topic lifecycle + broker state) - TCP admin command scaffold (`ADMIN_*`) added in `internal/network`.~~
 
 **Exit Criteria**
 - Metadata survives controller failover.

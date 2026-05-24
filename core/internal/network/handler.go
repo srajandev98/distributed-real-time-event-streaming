@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"sort"
+	"strconv"
 	"strings"
 
 	"real-time-event-streaming/internal/broker"
@@ -61,6 +63,16 @@ func handleRequest(req *protocol.Request, b *broker.Broker) string {
 		return handleReplicaFetch(req, b)
 	case "SET_PARTITION_ROLE":
 		return handleSetPartitionRole(req, b)
+	case "ADMIN_CREATE_TOPIC":
+		return handleAdminCreateTopic(req, b)
+	case "ADMIN_REGISTER_BROKER":
+		return handleAdminRegisterBroker(req, b)
+	case "ADMIN_BROKER_HEARTBEAT":
+		return handleAdminBrokerHeartbeat(req, b)
+	case "ADMIN_SET_PARTITION_LEADER":
+		return handleAdminSetPartitionLeader(req, b)
+	case "ADMIN_GET_METADATA":
+		return handleAdminGetMetadata(req, b)
 	default:
 		return protocol.Err(req.CorrelationID, "UNKNOWN_COMMAND", "unsupported command")
 	}
@@ -338,4 +350,125 @@ func handleReplicaFetch(req *protocol.Request, b *broker.Broker) string {
 			status.UnderReplicated,
 		),
 	)
+}
+
+func handleAdminCreateTopic(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 3 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "ADMIN_CREATE_TOPIC requires: <topic> <partitions> <replication_factor>")
+	}
+	partitions, err := protocol.ParseInt(req.Args[1], "partitions")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	replicationFactor, err := protocol.ParseInt(req.Args[2], "replication_factor")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	result, err := b.Controller.CreateTopic(req.Args[0], partitions, replicationFactor)
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("topic=%s partitions=%d replication_factor=%d term=%d index=%d", req.Args[0], partitions, replicationFactor, result.Term, result.Index))
+}
+
+func handleAdminRegisterBroker(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 3 && len(req.Args) != 4 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "ADMIN_REGISTER_BROKER requires: <broker_id> <host> <port> [epoch]")
+	}
+	brokerID, err := protocol.ParseInt(req.Args[0], "broker_id")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	port, err := protocol.ParseInt(req.Args[2], "port")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	epoch := int64(0)
+	if len(req.Args) == 4 {
+		parsedEpoch, err := strconv.ParseInt(req.Args[3], 10, 64)
+		if err != nil {
+			return protocol.Err(req.CorrelationID, "BAD_REQUEST", "invalid epoch")
+		}
+		epoch = parsedEpoch
+	}
+	result, err := b.Controller.RegisterBroker(brokerID, req.Args[1], port, epoch)
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("broker_id=%d host=%s port=%d term=%d index=%d", brokerID, req.Args[1], port, result.Term, result.Index))
+}
+
+func handleAdminBrokerHeartbeat(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 1 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "ADMIN_BROKER_HEARTBEAT requires: <broker_id>")
+	}
+	brokerID, err := protocol.ParseInt(req.Args[0], "broker_id")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	result, err := b.Controller.HeartbeatBroker(brokerID)
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("broker_id=%d heartbeat=ok term=%d index=%d", brokerID, result.Term, result.Index))
+}
+
+func handleAdminSetPartitionLeader(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 4 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "ADMIN_SET_PARTITION_LEADER requires: <topic> <partition> <leader_id> <isr_csv>")
+	}
+	partition, err := protocol.ParseInt(req.Args[1], "partition")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	leaderID, err := protocol.ParseInt(req.Args[2], "leader_id")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	isr, err := parseCSVInts(req.Args[3])
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	result, err := b.Controller.SetPartitionLeader(req.Args[0], partition, leaderID, isr)
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("topic=%s partition=%d leader=%d isr=%v term=%d index=%d", req.Args[0], partition, leaderID, isr, result.Term, result.Index))
+}
+
+func handleAdminGetMetadata(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 0 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "ADMIN_GET_METADATA requires no args")
+	}
+	s := b.Controller.Snapshot()
+	topicNames := make([]string, 0, len(s.Topics))
+	for name := range s.Topics {
+		topicNames = append(topicNames, name)
+	}
+	sort.Strings(topicNames)
+
+	brokerIDs := make([]int, 0, len(s.Brokers))
+	for id := range s.Brokers {
+		brokerIDs = append(brokerIDs, id)
+	}
+	sort.Ints(brokerIDs)
+
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("topics=%v brokers=%v", topicNames, brokerIDs))
+}
+
+func parseCSVInts(raw string) ([]int, error) {
+	parts := strings.Split(raw, ",")
+	out := make([]int, 0, len(parts))
+	for _, part := range parts {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil, fmt.Errorf("invalid integer list")
+		}
+		out = append(out, n)
+	}
+	return out, nil
 }
