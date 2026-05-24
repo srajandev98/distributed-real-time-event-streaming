@@ -4,11 +4,16 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config contains all runtime knobs needed by broker modules.
 type Config struct {
 	ListenAddr             string
+	AdvertisedHost         string
+	AdvertisedPort         int
+	BrokerID               int
+	ClusterPeers           []string
 	DataDir                string
 	NumPartitions          int
 	ReplicationFactor      int
@@ -28,6 +33,10 @@ type Config struct {
 func Load() (*Config, error) {
 	cfg := &Config{
 		ListenAddr:             getEnv("FLUX_LISTEN_ADDR", ":9092"),
+		AdvertisedHost:         getEnv("FLUX_ADVERTISED_HOST", "127.0.0.1"),
+		AdvertisedPort:         9092,
+		BrokerID:               0,
+		ClusterPeers:           parseCSVEnv("FLUX_CLUSTER_PEERS"),
 		DataDir:                getEnv("FLUX_DATA_DIR", "data"),
 		NumPartitions:          3,
 		ReplicationFactor:      3,
@@ -49,6 +58,20 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid FLUX_NUM_PARTITIONS: %w", err)
 		}
 		cfg.NumPartitions = parsed
+	}
+	if raw := os.Getenv("FLUX_ADVERTISED_PORT"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid FLUX_ADVERTISED_PORT: %w", err)
+		}
+		cfg.AdvertisedPort = parsed
+	}
+	if raw := os.Getenv("FLUX_BROKER_ID"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid FLUX_BROKER_ID: %w", err)
+		}
+		cfg.BrokerID = parsed
 	}
 	if raw := os.Getenv("FLUX_REPLICATION_FACTOR"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
@@ -149,6 +172,15 @@ func Load() (*Config, error) {
 	if cfg.ListenAddr == "" {
 		return nil, fmt.Errorf("listen addr cannot be empty")
 	}
+	if cfg.AdvertisedHost == "" {
+		return nil, fmt.Errorf("advertised host cannot be empty")
+	}
+	if cfg.AdvertisedPort <= 0 {
+		return nil, fmt.Errorf("advertised port must be > 0")
+	}
+	if cfg.BrokerID < 0 {
+		return nil, fmt.Errorf("broker id must be >= 0")
+	}
 
 	if cfg.DataDir == "" {
 		return nil, fmt.Errorf("data dir cannot be empty")
@@ -182,4 +214,20 @@ func getEnv(key string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func parseCSVEnv(key string) []string {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }

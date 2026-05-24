@@ -101,32 +101,29 @@ The current implementation already includes the foundational building blocks of 
 
 ---
 
-# High-Level Architecture
+# High-Level Architecture (Implemented Today)
 
 ```text
-                    ┌──────────────────┐
-                    │     Producer      │
-                    └────────┬─────────┘
-                             │
-                             ▼
-                    ┌──────────────────┐
-                    │      Broker       │
-                    └────────┬─────────┘
-                             │
-         ┌───────────────────┼───────────────────┐
-         ▼                   ▼                   ▼
+                             Clients (TS/Python SDK)
+                        Produce / Consume / Group APIs
+                                      │
+                    ┌─────────────────┼─────────────────┐
+                    ▼                 ▼                 ▼
+            ┌────────────────┐ ┌────────────────┐ ┌────────────────┐
+            │    broker-0    │ │    broker-1    │ │    broker-2    │
+            │   id=0 :9092   │ │   id=1 :9093   │ │   id=2 :9094   │
+            ├────────────────┤ ├────────────────┤ ├────────────────┤
+            │ Network Handler│ │ Network Handler│ │ Network Handler│
+            │ Protocol V1    │ │ Protocol V1    │ │ Protocol V1    │
+            │ Storage        │ │ Storage        │ │ Storage        │
+            │ Coordinator    │ │ Coordinator    │ │ Coordinator    │
+            │ Replication Mgr│ │ Replication Mgr│ │ Replication Mgr│
+            │ Controller*    │ │ Controller*    │ │ Controller*    │
+            └───────┬────────┘ └───────┬────────┘ └───────┬────────┘
+                    │                  │                  │
+                    └────────── Cluster Peers ────────────┘
 
-   Partition 0         Partition 1         Partition 2
-   Leader Log          Leader Log          Leader Log
-   Replica Logs        Replica Logs        Replica Logs
-
-         │                   │                   │
-         └───────────────────┼───────────────────┘
-                             ▼
-
-                    ┌──────────────────┐
-                    │ Consumer Groups   │
-                    └──────────────────┘
+* Current controller store is in-memory per process (durable shared quorum not yet implemented).
 ```
 
 ---
@@ -291,21 +288,27 @@ This enables:
 
 ---
 
-# Replication Model
+# Replication Model (Implemented Today)
 
 Each partition maintains:
 - one leader log
 - multiple replica logs
 
 Current implementation:
-- synchronous local replication
-- file-based replicas
+- leader/follower role model with ISR + high watermark tracking
+- broker-to-broker replication command contract:
+  - `BROKER_FETCH`
+  - `BROKER_REPLICA_ACK`
+- follower replication worker scaffold:
+  - fetch from leader
+  - append locally
+  - ack back to leader
+- local persistence on each broker data directory
 
 Planned implementation:
-- network replication
-- ISR tracking
-- acknowledgement quorum
-- leader election
+- fully automated multi-node replication orchestration
+- failover-tested leader election with follower promotion
+- durable controller quorum across controller nodes
 
 ---
 
@@ -407,16 +410,16 @@ OFFSET analytics orders 1
 
 ---
 
-## Start Broker
+## Start Single Broker
 
 ```bash
 go run ./cmd/broker
 ```
 
-Expected output:
+Expected output includes:
 
 ```text
-flux broker listening on port 9092
+broker started listen_addr=:9092 ...
 ```
 
 ---
@@ -430,25 +433,30 @@ flux broker listening on port 9092
 
 ---
 
-## Start Broker
+## Start 3-Broker Cluster
 
 ```bash
 docker compose up --build -d
 ```
 
-This starts the broker on `localhost:9092` and persists broker data in a named volume (`flux_data`).
+This starts three independent broker processes:
+- broker-0 -> `localhost:9092`
+- broker-1 -> `localhost:9093`
+- broker-2 -> `localhost:9094`
+
+Each broker has its own persistent volume (`flux_data_0`, `flux_data_1`, `flux_data_2`).
 
 ---
 
 ## View Logs
 
 ```bash
-docker compose logs -f broker
+docker compose logs -f broker-0 broker-1 broker-2
 ```
 
 ---
 
-## Stop Broker
+## Stop Cluster
 
 ```bash
 docker compose down
@@ -456,7 +464,7 @@ docker compose down
 
 ---
 
-## Stop Broker And Remove Data
+## Stop Cluster And Remove Data
 
 ```bash
 docker compose down -v
@@ -467,10 +475,15 @@ docker compose down -v
 ## Runtime Configuration (Environment Variables)
 
 - `FLUX_LISTEN_ADDR` default: `:9092`
+- `FLUX_ADVERTISED_HOST` default: `127.0.0.1`
+- `FLUX_ADVERTISED_PORT` default: `9092`
+- `FLUX_BROKER_ID` default: `0`
+- `FLUX_CLUSTER_PEERS` default: empty (comma-separated peer list, ex: `0@broker-0:9092,1@broker-1:9092,2@broker-2:9092`)
 - `FLUX_DATA_DIR` default: `/app/data`
 - `FLUX_NUM_PARTITIONS` default: `3`
+- `FLUX_REPLICATION_FACTOR` default: `3`
 
-Update these values in `docker-compose.yml` under `services.broker.environment`.
+Update these values in `docker-compose.yml` under each `services.<broker>.environment`.
 
 ---
 
@@ -516,33 +529,10 @@ SDK usage and API details:
 
 # Example Usage
 
-## Open Producer Connection
-
-```bash
-nc localhost 9092
-```
-
-Publish messages:
-
-```text
-PRODUCE orders user1:created
-PRODUCE orders user1:paid
-PRODUCE orders user2:shipped
-```
-
----
-
-## Open Consumer Connection
-
-```bash
-nc localhost 9092
-```
-
-Consume messages:
-
-```text
-CONSUME orders 2 0
-```
+Use SDK examples instead of raw protocol commands:
+- TypeScript: `../../packages/sdk/typescript/examples/basic-usage.ts`
+- TypeScript admin: `../../packages/sdk/typescript/examples/admin-usage.ts`
+- Python: `../../packages/sdk/python/examples/basic_usage.py`
 
 ---
 

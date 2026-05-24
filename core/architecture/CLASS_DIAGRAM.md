@@ -10,6 +10,10 @@ classDiagram
 
     class Config {
       +ListenAddr string
+      +AdvertisedHost string
+      +AdvertisedPort int
+      +BrokerID int
+      +ClusterPeers []string
       +DataDir string
       +NumPartitions int
       +ReplicationFactor int
@@ -24,7 +28,10 @@ classDiagram
       +Storage *Storage
       +Coordinator *Coordinator
       +Replication *ReplicationManager
+      +Controller *Controller
+      +LocalBrokerID int
       +NewBroker(cfg *Config) *Broker
+      +EnsureTopicMetadata(topic string) TopicMetadata
     }
 
     class Storage {
@@ -99,9 +106,15 @@ classDiagram
       -handleProduce(req, broker) string
       -handleConsume(req, broker) string
       -handleReplicaFetch(req, broker) string
+      -handleBrokerFetch(req, broker) string
+      -handleBrokerReplicaAck(req, broker) string
       -handleJoin(req, broker) string
       -handleCommit(req, broker) string
       -handleOffset(req, broker) string
+      -handleAdminCreateTopic(req, broker) string
+      -handleAdminRegisterBroker(req, broker) string
+      -handleAdminSetPartitionLeader(req, broker) string
+      -handleAdminGetMetadata(req, broker) string
     }
 
     class ReplicationManager {
@@ -110,6 +123,29 @@ classDiagram
       +WaitForAckAll(topic, partition, targetOffset) error
       +HighWatermark(topic, partition) int
       +Status(topic, partition) Status
+      +SetRole(topic, partition, role) error
+      +SetLeader(topic, partition, leaderAddress) error
+      +RunFollower(topic, partition, replicaID) error
+    }
+
+    class Controller {
+      +CreateTopic(name, partitions, replicationFactor) ApplyResult
+      +RegisterBroker(id, host, port, epoch) ApplyResult
+      +SetPartitionLeader(topic, partition, leaderID, isr) ApplyResult
+      +Snapshot() MetadataSnapshot
+    }
+
+    class TopicMetadata {
+      +Name string
+      +Partitions map[int]PartitionMetadata
+      +Configs map[string]string
+    }
+
+    class PartitionMetadata {
+      +ID int
+      +LeaderID int
+      +Replicas []int
+      +ISR []int
     }
 
     class ReplicationStatus {
@@ -135,6 +171,7 @@ classDiagram
     Broker --> Storage : owns
     Broker --> Coordinator : owns
     Broker --> ReplicationManager : owns
+    Broker --> Controller : owns
 
     Coordinator --> GroupManager : owns
     Coordinator --> OffsetManager : owns
@@ -143,8 +180,11 @@ classDiagram
     NetworkHandler --> Protocol : parse/format
     NetworkHandler --> Broker : execute commands
     NetworkHandler --> ReplicationManager : acks/HW/isr
+    NetworkHandler --> Controller : admin metadata commands
     Storage --> Message : stores
     ReplicationManager --> ReplicationStatus : returns
+    Broker --> TopicMetadata : resolves
+    TopicMetadata --> PartitionMetadata : contains
 
     Main --> Logging : runtime logs
     NetworkHandler --> Logging : request logs
@@ -162,6 +202,7 @@ classDiagram
    - `Storage` for produce/consume
    - `Coordinator` for group membership and offsets
    - `ReplicationManager` for ISR/high-watermark/acks
+   - `Controller` for topic/partition/broker metadata
 5. `Coordinator` splits responsibilities into:
    - `GroupManager` (partition assignment)
    - `OffsetManager` (persisted consumer progress)

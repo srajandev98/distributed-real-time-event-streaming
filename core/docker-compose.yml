@@ -1,18 +1,65 @@
 services:
-  broker:
+  broker-0:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: flux-broker
+    container_name: flux-broker-0
     ports:
       - "9092:9092"
     environment:
       FLUX_LISTEN_ADDR: ":9092"
+      FLUX_ADVERTISED_HOST: "broker-0"
+      FLUX_ADVERTISED_PORT: "9092"
+      FLUX_BROKER_ID: "0"
+      FLUX_CLUSTER_PEERS: "0@broker-0:9092,1@broker-1:9092,2@broker-2:9092"
       FLUX_DATA_DIR: "/app/data"
       FLUX_NUM_PARTITIONS: "3"
+      FLUX_REPLICATION_FACTOR: "3"
     volumes:
-      - flux_data:/app/data
+      - flux_data_0:/app/data
+    restart: unless-stopped
+
+  broker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flux-broker-1
+    ports:
+      - "9093:9092"
+    environment:
+      FLUX_LISTEN_ADDR: ":9092"
+      FLUX_ADVERTISED_HOST: "broker-1"
+      FLUX_ADVERTISED_PORT: "9092"
+      FLUX_BROKER_ID: "1"
+      FLUX_CLUSTER_PEERS: "0@broker-0:9092,1@broker-1:9092,2@broker-2:9092"
+      FLUX_DATA_DIR: "/app/data"
+      FLUX_NUM_PARTITIONS: "3"
+      FLUX_REPLICATION_FACTOR: "3"
+    volumes:
+      - flux_data_1:/app/data
+    restart: unless-stopped
+
+  broker-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flux-broker-2
+    ports:
+      - "9094:9092"
+    environment:
+      FLUX_LISTEN_ADDR: ":9092"
+      FLUX_ADVERTISED_HOST: "broker-2"
+      FLUX_ADVERTISED_PORT: "9092"
+      FLUX_BROKER_ID: "2"
+      FLUX_CLUSTER_PEERS: "0@broker-0:9092,1@broker-1:9092,2@broker-2:9092"
+      FLUX_DATA_DIR: "/app/data"
+      FLUX_NUM_PARTITIONS: "3"
+      FLUX_REPLICATION_FACTOR: "3"
+    volumes:
+      - flux_data_2:/app/data
     restart: unless-stopped
 
 volumes:
-  flux_data:
+  flux_data_0:
+  flux_data_1:
+  flux_data_2:

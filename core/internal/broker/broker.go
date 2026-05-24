@@ -45,7 +45,7 @@ func NewBroker(cfg *config.Config) *Broker {
 		Coordinator:              coordinator.NewCoordinator(cfg),
 		Replication:              replicationManager,
 		Controller:               controlplane.NewController(controlplane.NewRaftMetadataStore()),
-		LocalBrokerID:            0,
+		LocalBrokerID:            cfg.BrokerID,
 		DefaultPartitions:        cfg.NumPartitions,
 		DefaultReplicationFactor: cfg.ReplicationFactor,
 	}
@@ -54,14 +54,31 @@ func NewBroker(cfg *config.Config) *Broker {
 }
 
 func (b *Broker) bootstrapControllerMetadata(cfg *config.Config) {
+	host := strings.TrimSpace(cfg.AdvertisedHost)
+	port := cfg.AdvertisedPort
+	if host == "" || port <= 0 {
+		fallbackHost, fallbackPort := parseListenAddr(cfg.ListenAddr)
+		if host == "" {
+			host = fallbackHost
+		}
+		if port <= 0 {
+			port = fallbackPort
+		}
+	}
+	_, _ = b.Controller.RegisterBroker(b.LocalBrokerID, host, port, time.Now().UnixNano())
+}
+
+func parseListenAddr(listen string) (string, int) {
 	host := "127.0.0.1"
 	port := 9092
-	listen := strings.TrimSpace(cfg.ListenAddr)
-	if strings.HasPrefix(listen, ":") {
-		if p, err := strconv.Atoi(strings.TrimPrefix(listen, ":")); err == nil && p > 0 {
-			port = p
+	addr := strings.TrimSpace(listen)
+	if strings.HasPrefix(addr, ":") {
+		if parsed, err := strconv.Atoi(strings.TrimPrefix(addr, ":")); err == nil && parsed > 0 {
+			port = parsed
 		}
-	} else if h, p, err := net.SplitHostPort(listen); err == nil {
+		return host, port
+	}
+	if h, p, err := net.SplitHostPort(addr); err == nil {
 		if h != "" {
 			host = h
 		}
@@ -69,7 +86,7 @@ func (b *Broker) bootstrapControllerMetadata(cfg *config.Config) {
 			port = parsed
 		}
 	}
-	_, _ = b.Controller.RegisterBroker(b.LocalBrokerID, host, port, time.Now().UnixNano())
+	return host, port
 }
 
 // EnsureTopicMetadata migrates implicit local topic usage into controller metadata.

@@ -115,12 +115,14 @@ This document is the execution roadmap for evolving `Flux` into a production-gra
 
 ## Phase 5: Real Distributed Cluster Runtime (4-8 weeks)
 
+- ~~Implement broker-to-broker replication RPC contract (`BROKER_FETCH`, `BROKER_REPLICA_ACK`) and TCP transport client scaffold.~~
+- ~~Add follower replication loop scaffold (fetch -> apply -> ack) with unit + integration harness coverage.~~
 - Implement real broker-to-broker network replication across separate nodes.
 - Run leader/follower replicas as independent broker processes (not same-node mirror files).
 - Add fetch/append replication pipeline with backpressure and retry semantics.
 - Enforce committed-read visibility based on replicated high watermark across nodes.
 - Validate real failover behavior: leader crash -> election -> follower promotion -> continued produce/consume.
-- Add multi-node cluster bootstrap configuration (broker IDs, peer list, advertised listeners).
+- ~~Add multi-node cluster bootstrap configuration (broker IDs, peer list, advertised listeners).~~
 
 **Exit Criteria**
 - Multi-node cluster (3+ brokers) replicates data across networked nodes.

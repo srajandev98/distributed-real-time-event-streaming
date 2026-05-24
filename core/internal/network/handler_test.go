@@ -457,3 +457,76 @@ func TestAdminFencingHealthAndElectionFlow(t *testing.T) {
 		t.Fatalf("unexpected reconcile response: %s", resp)
 	}
 }
+
+func TestBrokerFetchAndReplicaAckFlow(t *testing.T) {
+	b := newTestBroker(t)
+
+	produceResp := handleRequest(&protocol.Request{
+		Version:       "V1",
+		CorrelationID: "80",
+		Command:       "PRODUCE",
+		Args:          []string{"orders", "user-broker:created", "acks=1"},
+	}, b)
+	if !strings.Contains(produceResp, "|OK|partition=") {
+		t.Fatalf("expected produce success, got: %s", produceResp)
+	}
+	partition, err := parsePartitionFromProduceResponse(produceResp)
+	if err != nil {
+		t.Fatalf("failed to parse partition: %v", err)
+	}
+
+	// Fetch from leader for follower replication.
+	fetchResp := handleRequest(&protocol.Request{
+		Version:       "V1",
+		CorrelationID: "81",
+		Command:       "BROKER_FETCH",
+		Args:          []string{"orders", strconv.Itoa(partition), "1", "0", "10"},
+	}, b)
+	if !strings.Contains(fetchResp, "|OK|topic=orders") || !strings.Contains(fetchResp, "records=0:created") {
+		t.Fatalf("unexpected broker fetch response: %s", fetchResp)
+	}
+
+	// Ack follower append progress.
+	ackResp := handleRequest(&protocol.Request{
+		Version:       "V1",
+		CorrelationID: "82",
+		Command:       "BROKER_REPLICA_ACK",
+		Args:          []string{"orders", strconv.Itoa(partition), "1", "0"},
+	}, b)
+	if !strings.Contains(ackResp, "|OK|topic=orders") || !strings.Contains(ackResp, "acked_offset=0") {
+		t.Fatalf("unexpected broker ack response: %s", ackResp)
+	}
+}
+
+func TestBrokerFetchValidationAndLeadershipErrors(t *testing.T) {
+	b := newTestBroker(t)
+
+	badReqResp := handleRequest(&protocol.Request{
+		Version:       "V1",
+		CorrelationID: "83",
+		Command:       "BROKER_FETCH",
+		Args:          []string{"orders", "0"},
+	}, b)
+	if !strings.Contains(badReqResp, "|ERR|BAD_REQUEST|") {
+		t.Fatalf("expected BAD_REQUEST for bad args, got: %s", badReqResp)
+	}
+
+	// Force partition to follower role and verify NOT_LEADER on broker fetch.
+	key := "user-follow"
+	partition := b.Storage.PartitionForKey(key)
+	_ = handleRequest(&protocol.Request{
+		Version:       "V1",
+		CorrelationID: "84",
+		Command:       "SET_PARTITION_ROLE",
+		Args:          []string{"orders", strconv.Itoa(partition), "follower"},
+	}, b)
+	notLeaderResp := handleRequest(&protocol.Request{
+		Version:       "V1",
+		CorrelationID: "85",
+		Command:       "BROKER_FETCH",
+		Args:          []string{"orders", strconv.Itoa(partition), "1", "0", "10"},
+	}, b)
+	if !strings.Contains(notLeaderResp, "|ERR|NOT_LEADER|") {
+		t.Fatalf("expected NOT_LEADER, got: %s", notLeaderResp)
+	}
+}

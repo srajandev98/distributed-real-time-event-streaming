@@ -143,6 +143,60 @@ func (s *Storage) ProduceToPartition(topic string, partition int, value string) 
 	return partition, offset
 }
 
+// AppendReplicated appends a follower-replicated record at an explicit offset.
+// This is used by follower replication loops applying leader-fetched records.
+func (s *Storage) AppendReplicated(topic string, partition int, offset int, value string) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	st := s.ensurePartitionState(topic, partition)
+	if offset < st.nextOffset {
+		// Idempotent replay: already applied.
+		return nil
+	}
+	if offset > st.nextOffset {
+		return fmt.Errorf("non-contiguous replicated offset: expected=%d got=%d", st.nextOffset, offset)
+	}
+
+	timestamp := time.Now().UnixMilli()
+	checksum := crc32.ChecksumIEEE([]byte(value))
+	line := fmt.Sprintf("%d|%d|%08x|%s\n", offset, timestamp, checksum, value)
+
+	if err := os.MkdirAll(s.dataDir, 0o755); err != nil {
+		return err
+	}
+	if s.shouldRotate(topic, partition, st.activeSegmentID, int64(len(line))) {
+		st.activeSegmentID++
+		st.segments = append(st.segments, st.activeSegmentID)
+	}
+
+	segmentPath := s.segmentPath(topic, partition, st.activeSegmentID)
+	f, err := os.OpenFile(segmentPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(line); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := s.applyFsyncPolicy(f, st, int64(len(line))); err != nil {
+		_ = f.Close()
+		return err
+	}
+	_ = f.Close()
+
+	s.appendOffsetIndex(topic, partition, offset, st.activeSegmentID)
+	s.appendTimestampIndex(topic, partition, timestamp, st.activeSegmentID, offset)
+
+	if _, exists := s.data[topic]; !exists {
+		s.data[topic] = make(map[int][]types.Message)
+	}
+	s.data[topic][partition] = append(s.data[topic][partition], types.Message{Offset: offset, Value: value})
+	st.nextOffset = offset + 1
+	s.enforceRetentionLocked()
+	return nil
+}
+
 // PartitionForKeyWithCount hashes key to a deterministic partition count.
 func (s *Storage) PartitionForKeyWithCount(key string, partitionCount int) int {
 	return getPartition(key, partitionCount)

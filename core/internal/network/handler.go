@@ -62,6 +62,10 @@ func handleRequest(req *protocol.Request, b *broker.Broker) string {
 		return handleOffset(req, b)
 	case "REPLICA_FETCH":
 		return handleReplicaFetch(req, b)
+	case "BROKER_FETCH":
+		return handleBrokerFetch(req, b)
+	case "BROKER_REPLICA_ACK":
+		return handleBrokerReplicaAck(req, b)
 	case "SET_PARTITION_ROLE":
 		return handleSetPartitionRole(req, b)
 	case "ADMIN_CREATE_TOPIC":
@@ -388,6 +392,89 @@ func handleReplicaFetch(req *protocol.Request, b *broker.Broker) string {
 			status.UnderReplicated,
 		),
 	)
+}
+
+// handleBrokerFetch serves log records from leader to follower brokers.
+// Args: <topic> <partition> <follower_id> <offset> [max_messages]
+func handleBrokerFetch(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 4 && len(req.Args) != 5 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "BROKER_FETCH requires: <topic> <partition> <follower_id> <offset> [max_messages]")
+	}
+
+	topic := req.Args[0]
+	partition, err := protocol.ParseInt(req.Args[1], "partition")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	followerID, err := protocol.ParseInt(req.Args[2], "follower_id")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	offset, err := protocol.ParseInt(req.Args[3], "offset")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	maxMessages := 100
+	if len(req.Args) == 5 {
+		maxMessages, err = protocol.ParseInt(req.Args[4], "max_messages")
+		if err != nil {
+			return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+		}
+		if maxMessages <= 0 {
+			return protocol.Err(req.CorrelationID, "BAD_REQUEST", "max_messages must be > 0")
+		}
+	}
+
+	if !b.Replication.IsLeader(topic, partition) {
+		return protocol.Err(req.CorrelationID, "NOT_LEADER", "partition leader unavailable on this broker")
+	}
+
+	highWatermark := b.Replication.HighWatermark(topic, partition)
+	if highWatermark < 0 || offset > highWatermark {
+		return protocol.Ok(req.CorrelationID, fmt.Sprintf("topic=%s partition=%d follower=%d hw=%d records=", topic, partition, followerID, highWatermark))
+	}
+
+	messages := b.Storage.Consume(topic, partition, offset)
+	records := make([]string, 0, maxMessages)
+	for _, msg := range messages {
+		if msg.Offset > highWatermark {
+			break
+		}
+		records = append(records, fmt.Sprintf("%d:%s", msg.Offset, msg.Value))
+		if len(records) >= maxMessages {
+			break
+		}
+	}
+
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("topic=%s partition=%d follower=%d hw=%d records=%s", topic, partition, followerID, highWatermark, strings.Join(records, ",")))
+}
+
+// handleBrokerReplicaAck records follower replication progress (inter-broker ack path).
+// Args: <topic> <partition> <follower_id> <acked_offset>
+func handleBrokerReplicaAck(req *protocol.Request, b *broker.Broker) string {
+	if len(req.Args) != 4 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "BROKER_REPLICA_ACK requires: <topic> <partition> <follower_id> <acked_offset>")
+	}
+
+	topic := req.Args[0]
+	partition, err := protocol.ParseInt(req.Args[1], "partition")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	followerID, err := protocol.ParseInt(req.Args[2], "follower_id")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	ackedOffset, err := protocol.ParseInt(req.Args[3], "acked_offset")
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+
+	if err := b.Replication.AckReplica(topic, partition, followerID, ackedOffset); err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	status := b.Replication.Status(topic, partition)
+	return protocol.Ok(req.CorrelationID, fmt.Sprintf("topic=%s partition=%d follower=%d acked_offset=%d hw=%d isr=%v under_replicated=%t", topic, partition, followerID, ackedOffset, status.HighWatermark, status.InSyncReplicas, status.UnderReplicated))
 }
 
 func handleAdminCreateTopic(req *protocol.Request, b *broker.Broker) string {
