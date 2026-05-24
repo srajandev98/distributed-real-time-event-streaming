@@ -35,11 +35,6 @@ client.commit("analytics", "orders", "consumer-a", join.generation, produced.par
 print("offset", client.offset("analytics", "orders", produced.partition))
 print("replica", client.replica_fetch("orders", produced.partition, 1, produced.offset))
 print("role", client.set_partition_role("orders", produced.partition, "leader"))
-print("admin topic", client.admin_create_topic("payments", 3, 2))
-print("admin register", client.admin_register_broker(1, "127.0.0.1", 9093))
-print("admin heartbeat", client.admin_broker_heartbeat(1))
-print("admin set leader", client.admin_set_partition_leader("payments", 0, 1, [1, 0]))
-print("admin metadata", client.admin_get_metadata())
 print("left", client.leave("analytics", "orders", "consumer-a", join.generation))
 
 client.close()
@@ -77,6 +72,25 @@ def handle_message(ctx):
     # Call consumer.disconnect() when your app wants to stop the run loop.
 
 consumer.run(handle_message)
+```
+
+## Admin APIs (Operator Flow)
+
+Admin APIs are intended for platform/operator workflows, not typical app producer/consumer code paths.
+
+```python
+from flux_sdk import FLUXClient
+
+client = FLUXClient(host="127.0.0.1", port=9092)
+client.connect()
+
+print(client.admin_create_topic("payments", 3, 2))
+print(client.admin_register_broker(1, "127.0.0.1", 9093))
+print(client.admin_broker_heartbeat(1))
+print(client.admin_set_partition_leader("payments", 0, 1, [1, 0]))
+print(client.admin_get_metadata())
+
+client.close()
 ```
 
 ## API

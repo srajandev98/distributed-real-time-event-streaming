@@ -35,102 +35,6 @@ Stop:
 docker compose down
 ```
 
-## Protocol Format
-
-Every request is one line:
-
-```text
-V1|<correlation_id>|<command>|<args>
-```
-
-## Common Commands
-
-Produce:
-
-```text
-V1|1|PRODUCE|orders user1:created
-```
-
-Produce with explicit ack mode:
-
-```text
-V1|1|PRODUCE|orders user1:created acks=all
-```
-
-Consume:
-
-```text
-V1|2|CONSUME|orders 2 0
-```
-
-Join group:
-
-```text
-V1|3|JOIN|analytics orders consumer-a
-```
-
-Sync group assignment:
-
-```text
-V1|4|SYNC|analytics orders consumer-a 2
-```
-
-Heartbeat:
-
-```text
-V1|5|HEARTBEAT|analytics orders consumer-a 2
-```
-
-Commit offset:
-
-```text
-V1|6|COMMIT|analytics orders consumer-a 2 1 42
-```
-
-Read committed offset:
-
-```text
-V1|7|OFFSET|analytics orders 1
-```
-
-Follower replication progress (for replica simulation/testing):
-
-```text
-V1|8|REPLICA_FETCH|orders 1 1 42
-```
-
-Set local partition role:
-
-```text
-V1|9|SET_PARTITION_ROLE|orders 1 leader
-```
-
-Admin create topic:
-
-```text
-V1|10|ADMIN_CREATE_TOPIC|payments 3 2
-```
-
-Admin metadata snapshot:
-
-```text
-V1|11|ADMIN_GET_METADATA|
-```
-
-## Expected Responses
-
-Success:
-
-```text
-V1|<correlation_id>|OK|<payload>
-```
-
-Error:
-
-```text
-V1|<correlation_id>|ERR|<code>|<message>
-```
-
 ## Data Files
 
 Broker data is stored under `core/data/` by default.
@@ -208,10 +112,6 @@ async function main() {
   const client = new FLUXClient({ host: '127.0.0.1', port: 9092 });
   await client.connect();
 
-  // Admin setup (optional)
-  await client.adminCreateTopic('orders', 3, 2);
-  await client.adminRegisterBroker(1, '127.0.0.1', 9093);
-
   const produced = await client.produce('orders', 'user1', 'created', '1');
   console.log('produced', produced);
 
@@ -249,10 +149,6 @@ from flux_sdk import FLUXClient, FLUXRuntime, ProducerMessage
 client = FLUXClient(host="127.0.0.1", port=9092)
 client.connect()
 
-# Admin setup (optional)
-client.admin_create_topic("orders", 3, 2)
-client.admin_register_broker(1, "127.0.0.1", 9093)
-
 produced = client.produce("orders", "user1", "created", acks="1")
 print("produced", produced)
 
@@ -269,4 +165,14 @@ producer.send(
     messages=[ProducerMessage(key="user2", value="paid")],
     acks="1",
 )
+```
+
+## Admin Usage (Operator/Platform)
+
+Control-plane admin APIs are intended for operator/platform workflows, not regular app producer/consumer code.
+
+TypeScript admin flow is available at:
+
+```text
+packages/sdk/typescript/examples/admin-usage.ts
 ```

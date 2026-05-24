@@ -53,16 +53,6 @@ async function run() {
   const role = await client.setPartitionRole('orders', produced.partition, 'leader');
   console.log('role', role);
 
-  const adminTopic = await client.adminCreateTopic('payments', 3, 2);
-  console.log('admin topic', adminTopic);
-  await client.adminRegisterBroker(1, '127.0.0.1', 9093);
-  const adminHeartbeat = await client.adminBrokerHeartbeat(1);
-  console.log('admin heartbeat', adminHeartbeat);
-  const adminLeader = await client.adminSetPartitionLeader('payments', 0, 1, [1, 0]);
-  console.log('admin set leader', adminLeader);
-  const metadata = await client.adminGetMetadata();
-  console.log('metadata', metadata);
-
   await client.leave('analytics', 'orders', 'consumer-a', join.generation);
   await client.close();
 }
@@ -89,6 +79,26 @@ pnpm install
 pnpm run build
 npx tsc --module commonjs --target es2020 --outDir examples/dist examples/basic-usage.ts
 node examples/dist/basic-usage.js
+```
+
+## Admin APIs (Operator Flow)
+
+Admin APIs are intended for platform/operator workflows, not typical app producer/consumer code paths.
+
+```ts
+import { FLUXClient } from '@flux/typescript-sdk';
+
+const client = new FLUXClient({ host: '127.0.0.1', port: 9092 });
+await client.connect();
+
+await client.adminCreateTopic('payments', 3, 2);
+await client.adminRegisterBroker(1, '127.0.0.1', 9093);
+await client.adminBrokerHeartbeat(1);
+await client.adminSetPartitionLeader('payments', 0, 1, [1, 0]);
+const metadata = await client.adminGetMetadata();
+console.log(metadata);
+
+await client.close();
 ```
 
 ## API
