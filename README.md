@@ -58,19 +58,61 @@ orders-2-replica-2-segment-000000.log
 ## Configuration (Environment Variables)
 
 - `FLUX_LISTEN_ADDR` (default `:9092`)
+  - Broker TCP listen address.
+  - Use `:9092` to listen on all interfaces on port 9092, or `127.0.0.1:9092` for local-only binding.
+
 - `FLUX_DATA_DIR` (default `data`)
+  - Root directory where broker files are stored.
+  - Contains segment logs, indexes, replica mirror files, `offsets.json`, and `groups.json`.
+
 - `FLUX_NUM_PARTITIONS` (default `3`)
+  - Default partition count used by runtime/components for topic behavior.
+  - Affects key hashing distribution and parallelism.
+
 - `FLUX_REPLICATION_FACTOR` (default `3`)
+  - Number of replicas per partition in current replication model.
+  - Higher value increases durability intent but also replication coordination work.
+
 - `FLUX_MIN_ISR` (default `2`)
+  - Minimum in-sync replicas required for a partition to be considered safely replicated for strict write paths.
+  - Mainly impacts `acks=all` success behavior.
+
 - `FLUX_REPLICA_MAX_LAG` (default `0`)
+  - Maximum follower offset lag (in messages) allowed to remain in ISR.
+  - Lower values are stricter; replicas drop from ISR sooner.
+
 - `FLUX_REPLICA_LAG_TIMEOUT_MS` (default `10000`)
+  - Follower freshness timeout in milliseconds.
+  - If a replica does not report progress within this window, it can be considered out of ISR.
+
 - `FLUX_ACK_ALL_TIMEOUT_MS` (default `2000`)
-- `FLUX_SEGMENT_MAX_BYTES`
-- `FLUX_RETENTION_MAX_BYTES`
-- `FLUX_RETENTION_MAX_AGE_SECONDS`
-- `FLUX_FLUSH_INTERVAL_MS`
-- `FLUX_FLUSH_BYTES`
-- `FLUX_FSYNC_MODE` (`always`, `interval`, `never`)
+  - Timeout (ms) for produce requests using `acks=all`.
+  - If ISR conditions are not met before timeout, request fails with replication timeout.
+
+- `FLUX_SEGMENT_MAX_BYTES` (default `1048576`)
+  - Maximum size of an active segment file before rollover to a new segment.
+  - Smaller values roll segments more often; larger values reduce segment churn.
+
+- `FLUX_RETENTION_MAX_BYTES` (default `52428800`)
+  - Total per-topic-partition data budget in bytes for retention cleanup.
+  - Old segments are removed when usage crosses this threshold.
+
+- `FLUX_RETENTION_MAX_AGE_SECONDS` (default `86400`)
+  - Maximum age of retained data (seconds).
+  - Segments older than this age are eligible for deletion.
+
+- `FLUX_FLUSH_INTERVAL_MS` (default `1000`)
+  - Flush interval used by interval-based fsync policy.
+  - Smaller interval favors durability, larger interval favors throughput.
+
+- `FLUX_FLUSH_BYTES` (default `65536`)
+  - Byte threshold used by interval-based flush/fsync logic.
+  - Triggers fsync behavior after enough buffered writes.
+
+- `FLUX_FSYNC_MODE` (default `always`; allowed: `always`, `interval`, `never`)
+  - `always`: fsync on every write (highest durability, lower throughput).
+  - `interval`: fsync based on `FLUX_FLUSH_INTERVAL_MS` and `FLUX_FLUSH_BYTES`.
+  - `never`: no explicit fsync (highest throughput, weakest crash durability).
 
 Example:
 
