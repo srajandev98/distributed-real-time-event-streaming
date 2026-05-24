@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"real-time-event-streaming/internal/broker"
-	"real-time-event-streaming/internal/config"
-	"real-time-event-streaming/internal/protocol"
+	"flux/internal/broker"
+	"flux/internal/config"
+	"flux/internal/protocol"
 )
 
 func parsePartitionFromProduceResponse(resp string) (int, error) {
@@ -364,5 +364,33 @@ func TestAdminValidationErrors(t *testing.T) {
 	}
 	if resp := handleRequest(setLeaderBad, b); !strings.Contains(resp, "|ERR|BAD_REQUEST|") {
 		t.Fatalf("expected BAD_REQUEST for invalid isr list, got: %s", resp)
+	}
+}
+
+func TestProduceMigratesTopicMetadataToController(t *testing.T) {
+	b := newTestBroker(t)
+
+	resp := handleRequest(&protocol.Request{
+		Version:       "V1",
+		CorrelationID: "60",
+		Command:       "PRODUCE",
+		Args:          []string{"invoices", "u1:created"},
+	}, b)
+	if !strings.Contains(resp, "|OK|partition=") {
+		t.Fatalf("expected produce success, got: %s", resp)
+	}
+
+	snapshot := b.Controller.Snapshot()
+	topic, ok := snapshot.Topics["invoices"]
+	if !ok {
+		t.Fatalf("expected controller metadata to include produced topic")
+	}
+	if len(topic.Partitions) != 3 {
+		t.Fatalf("expected 3 partitions in migrated metadata, got: %d", len(topic.Partitions))
+	}
+	for partitionID, partition := range topic.Partitions {
+		if partition.LeaderID != b.LocalBrokerID {
+			t.Fatalf("expected local broker to lead partition %d, got leader=%d", partitionID, partition.LeaderID)
+		}
 	}
 }

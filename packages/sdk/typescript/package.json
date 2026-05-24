@@ -1,5 +1,5 @@
 {
-  "name": "@rtes/typescript-sdk",
+  "name": "@flux/typescript-sdk",
   "version": "0.1.0",
   "description": "TypeScript SDK for Real-time Event Streaming broker",
   "main": "dist/index.js",

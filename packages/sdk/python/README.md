@@ -1,6 +1,6 @@
-# RTES Python SDK
+# FLUX Python SDK
 
-Python client SDK for Real-time Event Streaming (RTES).
+Python client SDK for Real-time Event Streaming (FLUX).
 
 ## Install (local path)
 
@@ -13,9 +13,9 @@ Or publish this package and install by package name.
 ## Usage
 
 ```python
-from rtes_sdk import RTESClient
+from flux_sdk import FLUXClient
 
-client = RTESClient(host="127.0.0.1", port=9092)
+client = FLUXClient(host="127.0.0.1", port=9092)
 client.connect()
 
 produced = client.produce("orders", "user1", "created", acks="all")
@@ -35,17 +35,22 @@ client.commit("analytics", "orders", "consumer-a", join.generation, produced.par
 print("offset", client.offset("analytics", "orders", produced.partition))
 print("replica", client.replica_fetch("orders", produced.partition, 1, produced.offset))
 print("role", client.set_partition_role("orders", produced.partition, "leader"))
+print("admin topic", client.admin_create_topic("payments", 3, 2))
+print("admin register", client.admin_register_broker(1, "127.0.0.1", 9093))
+print("admin heartbeat", client.admin_broker_heartbeat(1))
+print("admin set leader", client.admin_set_partition_leader("payments", 0, 1, [1, 0]))
+print("admin metadata", client.admin_get_metadata())
 print("left", client.leave("analytics", "orders", "consumer-a", join.generation))
 
 client.close()
 ```
 
-## High-level high-level API
+## High-level runtime API
 
 ```python
-from rtes_sdk import RTESRuntime, ProducerMessage
+from flux_sdk import FLUXRuntime, ProducerMessage
 
-runtime = RTESRuntime(host="127.0.0.1", port=9092)
+runtime = FLUXRuntime(host="127.0.0.1", port=9092)
 
 producer = runtime.producer(max_retries=3, retry_backoff_ms=250, batch_size=100)
 producer.send(
@@ -78,7 +83,7 @@ consumer.run(handle_message)
 
 - `connect() -> None`
 - `close() -> None`
-- `send_command(command: str, args: str = "") -> RTESResponse`
+- `send_command(command: str, args: str = "") -> FLUXResponse`
 - `produce(topic: str, key: str, value: str, acks: str = "1") -> ProduceResult`
 - `consume(topic: str, partition: int, offset: int) -> list[ConsumedMessage]`
 - `join(group: str, topic: str, consumer_id: str, assignor: Optional[str] = None) -> JoinResult`
@@ -89,16 +94,21 @@ consumer.run(handle_message)
 - `offset(group: str, topic: str, partition: int) -> int`
 - `replica_fetch(topic: str, partition: int, replica_id: int, offset: int) -> ReplicaFetchResult`
 - `set_partition_role(topic: str, partition: int, role: str) -> PartitionRoleResult`
-- `RTESRuntime.producer(...) -> RTESProducer`
-- `RTESProducer.send(topic: str, messages: list[ProducerMessage], acks: str = "1") -> None`
-- `RTESRuntime.consumer(...) -> RTESConsumer`
-- `RTESConsumer.subscribe(topic: str) -> None`
-- `RTESConsumer.run(each_message: Callable[[ConsumerRunContext], None]) -> None`
-- `RTESConsumer.disconnect() -> None`
+- `admin_create_topic(topic: str, partitions: int, replication_factor: int) -> AdminCreateTopicResult`
+- `admin_register_broker(broker_id: int, host: str, port: int, epoch: Optional[int] = None) -> AdminRegisterBrokerResult`
+- `admin_broker_heartbeat(broker_id: int) -> AdminBrokerHeartbeatResult`
+- `admin_set_partition_leader(topic: str, partition: int, leader_id: int, isr: list[int]) -> AdminSetPartitionLeaderResult`
+- `admin_get_metadata() -> AdminMetadataResult`
+- `FLUXRuntime.producer(...) -> FLUXProducer`
+- `FLUXProducer.send(topic: str, messages: list[ProducerMessage], acks: str = "1") -> None`
+- `FLUXRuntime.consumer(...) -> FLUXConsumer`
+- `FLUXConsumer.subscribe(topic: str) -> None`
+- `FLUXConsumer.run(each_message: Callable[[ConsumerRunContext], None]) -> None`
+- `FLUXConsumer.disconnect() -> None`
 
 ## Errors
 
-Protocol errors are raised as `RTESProtocolError` with:
+Protocol errors are raised as `FLUXProtocolError` with:
 
 - `code` (e.g. `BAD_REQUEST`, `UNKNOWN_COMMAND`)
 - `message`

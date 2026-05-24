@@ -1,6 +1,6 @@
-# Production Plan: real-time-event-streaming
+# Production Plan: Flux
 
-This document is the execution roadmap for evolving `real-time-event-streaming` into a production-grade distributed event streaming platform in Go.
+This document is the execution roadmap for evolving `Flux` into a production-grade distributed event streaming platform in Go.
 
 ## 1. Objectives
 
@@ -103,7 +103,7 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 ## Phase 4: Metadata Quorum and Cluster Control Plane (4-6 weeks)
 
 - ~~Build controller service with Raft-based metadata store (scaffolded in `internal/controlplane`).~~
-- Migrate topic/partition metadata from local state to quorum.
+- ~~Migrate topic/partition metadata from local state to quorum (runtime path now reads/controller-bootstraps topic+partition metadata via `EnsureTopicMetadata`).~~
 - Implement leader election for partitions.
 - Add broker registration, health, and fencing.
 - ~~Add cluster metadata and health admin APIs (topic lifecycle + broker state) - TCP admin command scaffold (`ADMIN_*`) added in `internal/network`.~~

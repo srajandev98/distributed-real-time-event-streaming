@@ -1,25 +1,30 @@
-export { RTESClient } from './client';
-export { RTESRuntime } from './runtime';
-export { RTESProtocolError } from './errors';
+export { FLUXClient } from './client';
+export { FLUXRuntime } from './runtime';
+export { FLUXProtocolError } from './errors';
 
 export type {
   AckMode,
-  RTESClientOptions,
-  RTESResponse,
+  FLUXClientOptions,
+  FLUXResponse,
   ProduceResult,
   ConsumedMessage,
   JoinResult,
   SyncResult,
   PartitionRoleResult,
   ReplicaFetchResult,
+  AdminCreateTopicResult,
+  AdminRegisterBrokerResult,
+  AdminBrokerHeartbeatResult,
+  AdminSetPartitionLeaderResult,
+  AdminMetadataResult,
 } from './types';
 
 export type {
-  RTESRuntimeOptions,
-  RTESProducer,
-  RTESConsumer,
+  FLUXRuntimeOptions,
+  FLUXProducer,
+  FLUXConsumer,
   ProducerSendParams,
   ConsumerRunConfig,
   ConsumerRunContext,
-  RTESConsumerOptions,
+  FLUXConsumerOptions,
 } from './runtime';

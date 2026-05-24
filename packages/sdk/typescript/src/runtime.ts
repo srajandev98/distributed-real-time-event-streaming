@@ -1,7 +1,7 @@
-import { RTESClient } from './client';
-import type { AckMode, ConsumedMessage, RTESClientOptions } from './types';
+import { FLUXClient } from './client';
+import type { AckMode, ConsumedMessage, FLUXClientOptions } from './types';
 
-export interface RTESRuntimeOptions extends RTESClientOptions {}
+export interface FLUXRuntimeOptions extends FLUXClientOptions {}
 
 export interface ProducerSendParams {
   topic: string;
@@ -9,14 +9,14 @@ export interface ProducerSendParams {
   acks?: AckMode;
 }
 
-export interface RTESProducerOptions {
+export interface FLUXProducerOptions {
   maxRetries?: number;
   retryBackoffMs?: number;
   batchSize?: number;
   lingerMs?: number;
 }
 
-export interface RTESProducer {
+export interface FLUXProducer {
   send(params: ProducerSendParams): Promise<void>;
 }
 
@@ -30,7 +30,7 @@ export interface ConsumerRunConfig {
   eachMessage: (ctx: ConsumerRunContext) => Promise<void>;
 }
 
-export interface RTESConsumerOptions {
+export interface FLUXConsumerOptions {
   groupId: string;
   consumerId: string;
   assignor?: 'round_robin' | 'range';
@@ -45,7 +45,7 @@ export interface RTESConsumerOptions {
   onCrash?: (error: unknown) => Promise<void> | void;
 }
 
-export interface RTESConsumer {
+export interface FLUXConsumer {
   subscribe(config: { topic: string }): Promise<void>;
   run(config: ConsumerRunConfig): Promise<void>;
   disconnect(): Promise<void>;
@@ -83,15 +83,15 @@ async function withRetry<T>(
   }
 }
 
-export class RTESRuntime {
-  private readonly options: RTESRuntimeOptions;
+export class FLUXRuntime {
+  private readonly options: FLUXRuntimeOptions;
 
-  constructor(options: RTESRuntimeOptions = {}) {
+  constructor(options: FLUXRuntimeOptions = {}) {
     this.options = options;
   }
 
-  producer(options: RTESProducerOptions = {}): RTESProducer {
-    const client = new RTESClient(this.options);
+  producer(options: FLUXProducerOptions = {}): FLUXProducer {
+    const client = new FLUXClient(this.options);
     const maxRetries = options.maxRetries ?? 3;
     const retryBackoffMs = options.retryBackoffMs ?? 250;
     const batchSize = options.batchSize ?? 100;
@@ -126,8 +126,8 @@ export class RTESRuntime {
     };
   }
 
-  consumer(options: RTESConsumerOptions): RTESConsumer {
-    const client = new RTESClient(this.options);
+  consumer(options: FLUXConsumerOptions): FLUXConsumer {
+    const client = new FLUXClient(this.options);
     const assignor = options.assignor ?? 'round_robin';
     const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 2000;
     const pollIntervalMs = options.pollIntervalMs ?? 500;

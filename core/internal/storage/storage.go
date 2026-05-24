@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"real-time-event-streaming/internal/config"
-	"real-time-event-streaming/internal/logging"
-	"real-time-event-streaming/internal/types"
+	"flux/internal/config"
+	"flux/internal/logging"
+	"flux/internal/types"
 )
 
 const (
@@ -81,10 +81,15 @@ func NewStorage(cfg *config.Config) *Storage {
 
 // Produce appends a message to the chosen partition and returns partition+offset.
 func (s *Storage) Produce(topic string, key string, value string) (int, int) {
+	partition := getPartition(key, s.numPartitions)
+	return s.ProduceToPartition(topic, partition, value)
+}
+
+// ProduceToPartition appends a message to an explicit partition.
+func (s *Storage) ProduceToPartition(topic string, partition int, value string) (int, int) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	partition := getPartition(key, s.numPartitions)
 	st := s.ensurePartitionState(topic, partition)
 	offset := st.nextOffset
 	timestamp := time.Now().UnixMilli()
@@ -136,6 +141,11 @@ func (s *Storage) Produce(topic string, key string, value string) (int, int) {
 	// Enforce cleanup policy after appends so data size/age stays bounded.
 	s.enforceRetentionLocked()
 	return partition, offset
+}
+
+// PartitionForKeyWithCount hashes key to a deterministic partition count.
+func (s *Storage) PartitionForKeyWithCount(key string, partitionCount int) int {
+	return getPartition(key, partitionCount)
 }
 
 // PartitionForKey returns the deterministic partition for a producer key.

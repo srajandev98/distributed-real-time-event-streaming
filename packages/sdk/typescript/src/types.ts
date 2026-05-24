@@ -1,10 +1,10 @@
-export interface RTESClientOptions {
+export interface FLUXClientOptions {
   host?: string;
   port?: number;
   timeoutMs?: number;
 }
 
-export interface RTESResponse {
+export interface FLUXResponse {
   version: string;
   correlationId: string;
   status: 'OK' | 'ERR';
@@ -18,7 +18,7 @@ export interface ProduceResult {
   partition: number;
   offset: number;
   highWatermark?: number;
-  raw: RTESResponse;
+  raw: FLUXResponse;
 }
 
 export type AckMode = '0' | '1' | 'all';
@@ -31,13 +31,13 @@ export interface ConsumedMessage {
 export interface JoinResult {
   generation: number;
   assigned: number[];
-  raw: RTESResponse;
+  raw: FLUXResponse;
 }
 
 export interface SyncResult {
   generation: number;
   assigned: number[];
-  raw: RTESResponse;
+  raw: FLUXResponse;
 }
 
 export interface PartitionRoleResult {
@@ -45,7 +45,7 @@ export interface PartitionRoleResult {
   partition: number;
   role: 'leader' | 'follower';
   highWatermark: number;
-  raw: RTESResponse;
+  raw: FLUXResponse;
 }
 
 export interface ReplicaFetchResult {
@@ -54,11 +54,53 @@ export interface ReplicaFetchResult {
   highWatermark: number;
   isr: number[];
   underReplicated: boolean;
-  raw: RTESResponse;
+  raw: FLUXResponse;
+}
+
+export interface AdminCreateTopicResult {
+  topic: string;
+  partitions: number;
+  replicationFactor: number;
+  term: number;
+  index: number;
+  raw: FLUXResponse;
+}
+
+export interface AdminRegisterBrokerResult {
+  brokerId: number;
+  host: string;
+  port: number;
+  term: number;
+  index: number;
+  raw: FLUXResponse;
+}
+
+export interface AdminBrokerHeartbeatResult {
+  brokerId: number;
+  heartbeatOk: boolean;
+  term: number;
+  index: number;
+  raw: FLUXResponse;
+}
+
+export interface AdminSetPartitionLeaderResult {
+  topic: string;
+  partition: number;
+  leader: number;
+  isr: number[];
+  term: number;
+  index: number;
+  raw: FLUXResponse;
+}
+
+export interface AdminMetadataResult {
+  topics: string[];
+  brokers: number[];
+  raw: FLUXResponse;
 }
 
 export interface PendingRequest {
-  resolve: (value: RTESResponse) => void;
+  resolve: (value: FLUXResponse) => void;
   reject: (reason?: unknown) => void;
   timeout: NodeJS.Timeout;
 }

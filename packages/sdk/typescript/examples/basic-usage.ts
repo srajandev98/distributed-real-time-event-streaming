@@ -1,19 +1,50 @@
-import { RTESRuntime } from '../dist';
+import { FLUXClient, FLUXRuntime } from '../dist';
 
 const config = {
-  host: process.env.RTES_HOST || '127.0.0.1',
-  port: Number(process.env.RTES_PORT || '9092'),
-  timeoutMs: Number(process.env.RTES_TIMEOUT_MS || '5000'),
-  topic: process.env.RTES_TOPIC || 'orders',
-  group: process.env.RTES_GROUP || 'analytics',
-  consumerId: process.env.RTES_CONSUMER_ID || `consumer-${process.pid}`,
-  heartbeatIntervalMs: Number(process.env.RTES_HEARTBEAT_INTERVAL_MS || '2000'),
+  host: process.env.FLUX_HOST || '127.0.0.1',
+  port: Number(process.env.FLUX_PORT || '9092'),
+  timeoutMs: Number(process.env.FLUX_TIMEOUT_MS || '5000'),
+  topic: process.env.FLUX_TOPIC || 'orders',
+  group: process.env.FLUX_GROUP || 'analytics',
+  consumerId: process.env.FLUX_CONSUMER_ID || `consumer-${process.pid}`,
+  heartbeatIntervalMs: Number(process.env.FLUX_HEARTBEAT_INTERVAL_MS || '2000'),
+  adminBrokerId: Number(process.env.FLUX_ADMIN_BROKER_ID || '1'),
 };
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function runAdminSetup(): Promise<void> {
+  const admin = new FLUXClient({
+    host: config.host,
+    port: config.port,
+    timeoutMs: config.timeoutMs,
+  });
+  await admin.connect();
+  try {
+    console.log('\n[admin] bootstrapping control-plane metadata');
+    const created = await admin.adminCreateTopic(config.topic, 3, 2);
+    console.log('[admin] created topic:', created);
+
+    const registered = await admin.adminRegisterBroker(config.adminBrokerId, config.host, config.port + 1);
+    console.log('[admin] registered broker:', registered);
+
+    const heartbeat = await admin.adminBrokerHeartbeat(config.adminBrokerId);
+    console.log('[admin] broker heartbeat:', heartbeat);
+
+    const leader = await admin.adminSetPartitionLeader(config.topic, 0, 0, [0, config.adminBrokerId]);
+    console.log('[admin] set partition leader:', leader);
+
+    const metadata = await admin.adminGetMetadata();
+    console.log('[admin] metadata snapshot:', metadata);
+  } finally {
+    await admin.close();
+  }
+}
+
 async function main() {
-  const runtime = new RTESRuntime({
+  await runAdminSetup();
+
+  const runtime = new FLUXRuntime({
     host: config.host,
     port: config.port,
     timeoutMs: config.timeoutMs,

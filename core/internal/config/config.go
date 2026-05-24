@@ -27,8 +27,8 @@ type Config struct {
 // Load builds config from defaults + environment variables and validates it.
 func Load() (*Config, error) {
 	cfg := &Config{
-		ListenAddr:             getEnv("RTES_LISTEN_ADDR", ":9092"),
-		DataDir:                getEnv("RTES_DATA_DIR", "data"),
+		ListenAddr:             getEnv("FLUX_LISTEN_ADDR", ":9092"),
+		DataDir:                getEnv("FLUX_DATA_DIR", "data"),
 		NumPartitions:          3,
 		ReplicationFactor:      3,
 		MinInSyncReplicas:      2,
@@ -43,84 +43,84 @@ func Load() (*Config, error) {
 		FsyncMode:              "always",
 	}
 
-	if raw := os.Getenv("RTES_NUM_PARTITIONS"); raw != "" {
+	if raw := os.Getenv("FLUX_NUM_PARTITIONS"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil {
-			return nil, fmt.Errorf("invalid RTES_NUM_PARTITIONS: %w", err)
+			return nil, fmt.Errorf("invalid FLUX_NUM_PARTITIONS: %w", err)
 		}
 		cfg.NumPartitions = parsed
 	}
-	if raw := os.Getenv("RTES_REPLICATION_FACTOR"); raw != "" {
+	if raw := os.Getenv("FLUX_REPLICATION_FACTOR"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil {
-			return nil, fmt.Errorf("invalid RTES_REPLICATION_FACTOR: %w", err)
+			return nil, fmt.Errorf("invalid FLUX_REPLICATION_FACTOR: %w", err)
 		}
 		cfg.ReplicationFactor = parsed
 	}
-	if raw := os.Getenv("RTES_MIN_ISR"); raw != "" {
+	if raw := os.Getenv("FLUX_MIN_ISR"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil {
-			return nil, fmt.Errorf("invalid RTES_MIN_ISR: %w", err)
+			return nil, fmt.Errorf("invalid FLUX_MIN_ISR: %w", err)
 		}
 		cfg.MinInSyncReplicas = parsed
 	}
-	if raw := os.Getenv("RTES_REPLICA_MAX_LAG"); raw != "" {
+	if raw := os.Getenv("FLUX_REPLICA_MAX_LAG"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil {
-			return nil, fmt.Errorf("invalid RTES_REPLICA_MAX_LAG: %w", err)
+			return nil, fmt.Errorf("invalid FLUX_REPLICA_MAX_LAG: %w", err)
 		}
 		cfg.ReplicaMaxLag = parsed
 	}
-	if raw := os.Getenv("RTES_REPLICA_LAG_TIMEOUT_MS"); raw != "" {
+	if raw := os.Getenv("FLUX_REPLICA_LAG_TIMEOUT_MS"); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("invalid RTES_REPLICA_LAG_TIMEOUT_MS: %w", err)
+			return nil, fmt.Errorf("invalid FLUX_REPLICA_LAG_TIMEOUT_MS: %w", err)
 		}
 		cfg.ReplicaLagTimeoutMs = parsed
 	}
-	if raw := os.Getenv("RTES_ACK_ALL_TIMEOUT_MS"); raw != "" {
+	if raw := os.Getenv("FLUX_ACK_ALL_TIMEOUT_MS"); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("invalid RTES_ACK_ALL_TIMEOUT_MS: %w", err)
+			return nil, fmt.Errorf("invalid FLUX_ACK_ALL_TIMEOUT_MS: %w", err)
 		}
 		cfg.AckAllTimeoutMs = parsed
 	}
-	if raw := os.Getenv("RTES_SEGMENT_MAX_BYTES"); raw != "" {
+	if raw := os.Getenv("FLUX_SEGMENT_MAX_BYTES"); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("invalid RTES_SEGMENT_MAX_BYTES: %w", err)
+			return nil, fmt.Errorf("invalid FLUX_SEGMENT_MAX_BYTES: %w", err)
 		}
 		cfg.SegmentMaxBytes = parsed
 	}
-	if raw := os.Getenv("RTES_RETENTION_MAX_BYTES"); raw != "" {
+	if raw := os.Getenv("FLUX_RETENTION_MAX_BYTES"); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("invalid RTES_RETENTION_MAX_BYTES: %w", err)
+			return nil, fmt.Errorf("invalid FLUX_RETENTION_MAX_BYTES: %w", err)
 		}
 		cfg.RetentionMaxBytes = parsed
 	}
-	if raw := os.Getenv("RTES_RETENTION_MAX_AGE_SECONDS"); raw != "" {
+	if raw := os.Getenv("FLUX_RETENTION_MAX_AGE_SECONDS"); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("invalid RTES_RETENTION_MAX_AGE_SECONDS: %w", err)
+			return nil, fmt.Errorf("invalid FLUX_RETENTION_MAX_AGE_SECONDS: %w", err)
 		}
 		cfg.RetentionMaxAgeSeconds = parsed
 	}
-	if raw := os.Getenv("RTES_FLUSH_INTERVAL_MS"); raw != "" {
+	if raw := os.Getenv("FLUX_FLUSH_INTERVAL_MS"); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("invalid RTES_FLUSH_INTERVAL_MS: %w", err)
+			return nil, fmt.Errorf("invalid FLUX_FLUSH_INTERVAL_MS: %w", err)
 		}
 		cfg.FlushIntervalMs = parsed
 	}
-	if raw := os.Getenv("RTES_FLUSH_BYTES"); raw != "" {
+	if raw := os.Getenv("FLUX_FLUSH_BYTES"); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("invalid RTES_FLUSH_BYTES: %w", err)
+			return nil, fmt.Errorf("invalid FLUX_FLUSH_BYTES: %w", err)
 		}
 		cfg.FlushBytes = parsed
 	}
-	if raw := os.Getenv("RTES_FSYNC_MODE"); raw != "" {
+	if raw := os.Getenv("FLUX_FSYNC_MODE"); raw != "" {
 		cfg.FsyncMode = raw
 	}
 

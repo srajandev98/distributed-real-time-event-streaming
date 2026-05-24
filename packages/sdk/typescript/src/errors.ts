@@ -1,12 +1,12 @@
-import type { RTESResponse } from './types';
+import type { FLUXResponse } from './types';
 
-export class RTESProtocolError extends Error {
+export class FLUXProtocolError extends Error {
   constructor(
     message: string,
     public readonly code: string,
-    public readonly response: RTESResponse,
+    public readonly response: FLUXResponse,
   ) {
     super(message);
-    this.name = 'RTESProtocolError';
+    this.name = 'FLUXProtocolError';
   }
 }

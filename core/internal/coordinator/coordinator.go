@@ -1,6 +1,6 @@
 package coordinator
 
-import "real-time-event-streaming/internal/config"
+import "flux/internal/config"
 
 // Coordinator bundles group and offset management responsibilities.
 type Coordinator struct {

@@ -3,16 +3,16 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rtes-sdk"
+name = "flux-sdk"
 version = "0.1.0"
 description = "Python SDK for Real-time Event Streaming broker"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [
-  { name = "RTES" }
+  { name = "FLUX" }
 ]
-keywords = ["rtes", "event-streaming", "messaging", "sdk", "python"]
+keywords = ["flux", "event-streaming", "messaging", "sdk", "python"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",

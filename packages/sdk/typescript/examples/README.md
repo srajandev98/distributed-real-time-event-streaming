@@ -4,6 +4,12 @@
 
 End-to-end example showing:
 
+- admin control-plane APIs:
+  - create topic
+  - register broker
+  - broker heartbeat
+  - set partition leader
+  - get metadata snapshot
 - connect
 - produce
 - consume
@@ -18,7 +24,7 @@ End-to-end example showing:
 
 Run steps:
 
-1. Start RTES broker from `core/`:
+1. Start FLUX broker from `core/`:
 
 ```bash
 cd ../../../core
@@ -34,3 +40,7 @@ pnpm run build
 npx tsc --module commonjs --target es2020 --outDir examples/dist examples/basic-usage.ts
 node examples/dist/basic-usage.js
 ```
+
+Optional env vars for admin section:
+
+- `FLUX_ADMIN_BROKER_ID` (default: `1`)

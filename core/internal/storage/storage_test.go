@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"real-time-event-streaming/internal/config"
+	"flux/internal/config"
 )
 
 // newTestStorage creates a small-config storage for fast unit tests.

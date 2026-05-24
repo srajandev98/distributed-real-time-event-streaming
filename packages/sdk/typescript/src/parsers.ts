@@ -1,6 +1,6 @@
-import type { ConsumedMessage, JoinResult, RTESResponse } from './types';
+import type { ConsumedMessage, JoinResult, FLUXResponse } from './types';
 
-export function mustGetPayload(resp: RTESResponse, fallback: string): string {
+export function mustGetPayload(resp: FLUXResponse, fallback: string): string {
   if (typeof resp.payload !== 'string') {
     throw new Error(fallback);
   }

@@ -1,6 +1,6 @@
 import net from 'node:net';
 
-import { RTESProtocolError } from './errors';
+import { FLUXProtocolError } from './errors';
 import { buildCommandLine, parseResponse } from './protocol';
 import {
   extractStringField,
@@ -16,19 +16,24 @@ import type {
   AckMode,
   ConsumedMessage,
   JoinResult,
+  AdminBrokerHeartbeatResult,
+  AdminCreateTopicResult,
+  AdminMetadataResult,
+  AdminRegisterBrokerResult,
+  AdminSetPartitionLeaderResult,
   PartitionRoleResult,
   PendingRequest,
   ProduceResult,
   ReplicaFetchResult,
-  RTESClientOptions,
-  RTESResponse,
+  FLUXClientOptions,
+  FLUXResponse,
   SyncResult,
 } from './types';
 
 /**
- * RTESClient is a simple Node.js client for the RTES TCP text protocol.
+ * FLUXClient is a simple Node.js client for the FLUX TCP text protocol.
  */
-export class RTESClient {
+export class FLUXClient {
   private readonly host: string;
   private readonly port: number;
   private readonly timeoutMs: number;
@@ -39,7 +44,7 @@ export class RTESClient {
   private correlationSeq = 1;
   private pending = new Map<string, PendingRequest>();
 
-  constructor(options: RTESClientOptions = {}) {
+  constructor(options: FLUXClientOptions = {}) {
     this.host = options.host ?? '127.0.0.1';
     this.port = options.port ?? 9092;
     this.timeoutMs = options.timeoutMs ?? 5000;
@@ -81,7 +86,7 @@ export class RTESClient {
     socket.on('close', () => {
       this.connected = false;
       this.socket = null;
-      this.rejectAllPending(new Error('RTES connection closed'));
+      this.rejectAllPending(new Error('FLUX connection closed'));
     });
   }
 
@@ -99,7 +104,7 @@ export class RTESClient {
       socket.end();
     });
 
-    this.rejectAllPending(new Error('RTES client closed'));
+    this.rejectAllPending(new Error('FLUX client closed'));
   }
 
   async produce(topic: string, key: string, value: string, acks: AckMode = '1'): Promise<ProduceResult> {
@@ -221,15 +226,93 @@ export class RTESClient {
     };
   }
 
-  async sendCommand(command: string, args = ''): Promise<RTESResponse> {
+  async adminCreateTopic(
+    topic: string,
+    partitions: number,
+    replicationFactor: number,
+  ): Promise<AdminCreateTopicResult> {
+    const resp = await this.sendCommand('ADMIN_CREATE_TOPIC', `${topic} ${partitions} ${replicationFactor}`);
+    const payload = mustGetPayload(resp, 'admin create topic payload missing');
+    return {
+      topic: extractStringField(payload, 'topic'),
+      partitions: extractIntField(payload, 'partitions'),
+      replicationFactor: extractIntField(payload, 'replication_factor'),
+      term: extractIntField(payload, 'term'),
+      index: extractIntField(payload, 'index'),
+      raw: resp,
+    };
+  }
+
+  async adminRegisterBroker(
+    brokerId: number,
+    host: string,
+    port: number,
+    epoch?: number,
+  ): Promise<AdminRegisterBrokerResult> {
+    const epochArg = typeof epoch === 'number' ? ` ${epoch}` : '';
+    const resp = await this.sendCommand('ADMIN_REGISTER_BROKER', `${brokerId} ${host} ${port}${epochArg}`);
+    const payload = mustGetPayload(resp, 'admin register broker payload missing');
+    return {
+      brokerId: extractIntField(payload, 'broker_id'),
+      host: extractStringField(payload, 'host'),
+      port: extractIntField(payload, 'port'),
+      term: extractIntField(payload, 'term'),
+      index: extractIntField(payload, 'index'),
+      raw: resp,
+    };
+  }
+
+  async adminBrokerHeartbeat(brokerId: number): Promise<AdminBrokerHeartbeatResult> {
+    const resp = await this.sendCommand('ADMIN_BROKER_HEARTBEAT', `${brokerId}`);
+    const payload = mustGetPayload(resp, 'admin broker heartbeat payload missing');
+    return {
+      brokerId: extractIntField(payload, 'broker_id'),
+      heartbeatOk: payload.includes('heartbeat=ok'),
+      term: extractIntField(payload, 'term'),
+      index: extractIntField(payload, 'index'),
+      raw: resp,
+    };
+  }
+
+  async adminSetPartitionLeader(
+    topic: string,
+    partition: number,
+    leaderId: number,
+    isr: number[],
+  ): Promise<AdminSetPartitionLeaderResult> {
+    const isrArg = isr.join(',');
+    const resp = await this.sendCommand('ADMIN_SET_PARTITION_LEADER', `${topic} ${partition} ${leaderId} ${isrArg}`);
+    const payload = mustGetPayload(resp, 'admin set partition leader payload missing');
+    return {
+      topic: extractStringField(payload, 'topic'),
+      partition: extractIntField(payload, 'partition'),
+      leader: extractIntField(payload, 'leader'),
+      isr: parseIntListField(payload, 'isr'),
+      term: extractIntField(payload, 'term'),
+      index: extractIntField(payload, 'index'),
+      raw: resp,
+    };
+  }
+
+  async adminGetMetadata(): Promise<AdminMetadataResult> {
+    const resp = await this.sendCommand('ADMIN_GET_METADATA');
+    const payload = mustGetPayload(resp, 'admin get metadata payload missing');
+    const topics = extractBracketedList(payload, 'topics').filter((v) => v.length > 0);
+    const brokers = extractBracketedList(payload, 'brokers')
+      .filter((v) => v.length > 0)
+      .map((v) => Number(v));
+    return { topics, brokers, raw: resp };
+  }
+
+  async sendCommand(command: string, args = ''): Promise<FLUXResponse> {
     if (!this.socket || !this.connected) {
-      throw new Error('RTES client is not connected. Call connect() first.');
+      throw new Error('FLUX client is not connected. Call connect() first.');
     }
 
     const correlationId = String(this.correlationSeq++);
     const line = buildCommandLine(correlationId, command, args);
 
-    return await new Promise<RTESResponse>((resolve, reject) => {
+    return await new Promise<FLUXResponse>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(correlationId);
         reject(new Error(`Request timed out for correlation_id=${correlationId}`));
@@ -280,8 +363,8 @@ export class RTESClient {
 
     if (response.status === 'ERR') {
       pending.reject(
-        new RTESProtocolError(
-          response.message ?? 'RTES protocol error',
+        new FLUXProtocolError(
+          response.message ?? 'FLUX protocol error',
           response.code ?? 'UNKNOWN_ERROR',
           response,
         ),
@@ -299,4 +382,22 @@ export class RTESClient {
     }
     this.pending.clear();
   }
+}
+
+function extractBracketedList(payload: string, key: string): string[] {
+  const token = `${key}=[`;
+  const start = payload.indexOf(token);
+  if (start === -1) {
+    return [];
+  }
+  const rest = payload.slice(start + token.length);
+  const end = rest.indexOf(']');
+  if (end === -1) {
+    return [];
+  }
+  return rest
+    .slice(0, end)
+    .split(' ')
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
 }

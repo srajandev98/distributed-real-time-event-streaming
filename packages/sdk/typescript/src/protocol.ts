@@ -1,16 +1,16 @@
-import type { RTESResponse } from './types';
+import type { FLUXResponse } from './types';
 
 export const PROTOCOL_VERSION = 'V1';
 
-export function parseResponse(line: string): RTESResponse {
+export function parseResponse(line: string): FLUXResponse {
   const parts = line.split('|');
   if (parts.length < 3) {
-    throw new Error(`Invalid RTES response: ${line}`);
+    throw new Error(`Invalid FLUX response: ${line}`);
   }
 
   const [version, correlationId, status] = parts;
   if (version !== PROTOCOL_VERSION) {
-    throw new Error(`Unsupported RTES response version: ${version}`);
+    throw new Error(`Unsupported FLUX response version: ${version}`);
   }
 
   if (status === 'OK') {
@@ -34,7 +34,7 @@ export function parseResponse(line: string): RTESResponse {
     };
   }
 
-  throw new Error(`Unknown RTES response status: ${status}`);
+  throw new Error(`Unknown FLUX response status: ${status}`);
 }
 
 export function buildCommandLine(correlationId: string, command: string, args = ''): string {

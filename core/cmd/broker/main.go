@@ -4,10 +4,10 @@ import (
 	"net"
 	"os"
 
-	"real-time-event-streaming/internal/broker"
-	"real-time-event-streaming/internal/config"
-	"real-time-event-streaming/internal/logging"
-	"real-time-event-streaming/internal/network"
+	"flux/internal/broker"
+	"flux/internal/config"
+	"flux/internal/logging"
+	"flux/internal/network"
 )
 
 // main boots config, builds all broker dependencies, and starts the TCP server.

@@ -1,3 +1,3 @@
-module real-time-event-streaming
+module flux
 
 go 1.24.3

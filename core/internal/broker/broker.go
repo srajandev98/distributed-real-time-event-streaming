@@ -1,22 +1,29 @@
 package broker
 
 import (
+	"fmt"
+	"net"
+	"strconv"
+	"strings"
 	"time"
 
-	"real-time-event-streaming/internal/config"
-	"real-time-event-streaming/internal/controlplane"
-	"real-time-event-streaming/internal/coordinator"
-	"real-time-event-streaming/internal/logging"
-	"real-time-event-streaming/internal/replication"
-	"real-time-event-streaming/internal/storage"
+	"flux/internal/config"
+	"flux/internal/controlplane"
+	"flux/internal/coordinator"
+	"flux/internal/logging"
+	"flux/internal/replication"
+	"flux/internal/storage"
 )
 
 // Broker is the composition root for runtime services used by request handlers.
 type Broker struct {
-	Storage     *storage.Storage
-	Coordinator *coordinator.Coordinator
-	Replication *replication.Manager
-	Controller  *controlplane.Controller
+	Storage                  *storage.Storage
+	Coordinator              *coordinator.Coordinator
+	Replication              *replication.Manager
+	Controller               *controlplane.Controller
+	LocalBrokerID            int
+	DefaultPartitions        int
+	DefaultReplicationFactor int
 }
 
 // NewBroker wires storage + coordinator using shared runtime config.
@@ -33,10 +40,55 @@ func NewBroker(cfg *config.Config) *Broker {
 		}
 	})
 
-	return &Broker{
-		Storage:     storage.NewStorage(cfg),
-		Coordinator: coordinator.NewCoordinator(cfg),
-		Replication: replicationManager,
-		Controller:  controlplane.NewController(controlplane.NewRaftMetadataStore()),
+	b := &Broker{
+		Storage:                  storage.NewStorage(cfg),
+		Coordinator:              coordinator.NewCoordinator(cfg),
+		Replication:              replicationManager,
+		Controller:               controlplane.NewController(controlplane.NewRaftMetadataStore()),
+		LocalBrokerID:            0,
+		DefaultPartitions:        cfg.NumPartitions,
+		DefaultReplicationFactor: cfg.ReplicationFactor,
 	}
+	b.bootstrapControllerMetadata(cfg)
+	return b
+}
+
+func (b *Broker) bootstrapControllerMetadata(cfg *config.Config) {
+	host := "127.0.0.1"
+	port := 9092
+	listen := strings.TrimSpace(cfg.ListenAddr)
+	if strings.HasPrefix(listen, ":") {
+		if p, err := strconv.Atoi(strings.TrimPrefix(listen, ":")); err == nil && p > 0 {
+			port = p
+		}
+	} else if h, p, err := net.SplitHostPort(listen); err == nil {
+		if h != "" {
+			host = h
+		}
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			port = parsed
+		}
+	}
+	_, _ = b.Controller.RegisterBroker(b.LocalBrokerID, host, port, time.Now().UnixNano())
+}
+
+// EnsureTopicMetadata migrates implicit local topic usage into controller metadata.
+func (b *Broker) EnsureTopicMetadata(topic string) (controlplane.TopicMetadata, error) {
+	if topic == "" {
+		return controlplane.TopicMetadata{}, fmt.Errorf("topic is required")
+	}
+	snapshot := b.Controller.Snapshot()
+	if md, ok := snapshot.Topics[topic]; ok {
+		return md, nil
+	}
+	if _, err := b.Controller.CreateTopic(topic, b.DefaultPartitions, b.DefaultReplicationFactor); err != nil {
+		return controlplane.TopicMetadata{}, err
+	}
+	for partition := 0; partition < b.DefaultPartitions; partition++ {
+		if _, err := b.Controller.SetPartitionLeader(topic, partition, b.LocalBrokerID, []int{b.LocalBrokerID}); err != nil {
+			return controlplane.TopicMetadata{}, err
+		}
+	}
+	updated := b.Controller.Snapshot()
+	return updated.Topics[topic], nil
 }

@@ -9,7 +9,7 @@ PROTOCOL_VERSION = "V1"
 
 
 @dataclass
-class RTESResponse:
+class FLUXResponse:
     version: str
     correlation_id: str
     status: str
@@ -24,7 +24,7 @@ class ProduceResult:
     partition: int
     offset: int
     high_watermark: Optional[int]
-    raw: RTESResponse
+    raw: FLUXResponse
 
 
 @dataclass
@@ -37,13 +37,13 @@ class ConsumedMessage:
 class JoinResult:
     generation: int
     assigned: list[int]
-    raw: RTESResponse
+    raw: FLUXResponse
 
 @dataclass
 class SyncResult:
     generation: int
     assigned: list[int]
-    raw: RTESResponse
+    raw: FLUXResponse
 
 @dataclass
 class ReplicaFetchResult:
@@ -52,7 +52,7 @@ class ReplicaFetchResult:
     high_watermark: int
     isr: list[int]
     under_replicated: bool
-    raw: RTESResponse
+    raw: FLUXResponse
 
 @dataclass
 class PartitionRoleResult:
@@ -60,18 +60,64 @@ class PartitionRoleResult:
     partition: int
     role: str
     high_watermark: int
-    raw: RTESResponse
+    raw: FLUXResponse
+
+@dataclass
+class AdminCreateTopicResult:
+    topic: str
+    partitions: int
+    replication_factor: int
+    term: int
+    index: int
+    raw: FLUXResponse
 
 
-class RTESProtocolError(Exception):
-    def __init__(self, message: str, code: str, response: RTESResponse):
+@dataclass
+class AdminRegisterBrokerResult:
+    broker_id: int
+    host: str
+    port: int
+    term: int
+    index: int
+    raw: FLUXResponse
+
+
+@dataclass
+class AdminBrokerHeartbeatResult:
+    broker_id: int
+    heartbeat_ok: bool
+    term: int
+    index: int
+    raw: FLUXResponse
+
+
+@dataclass
+class AdminSetPartitionLeaderResult:
+    topic: str
+    partition: int
+    leader: int
+    isr: list[int]
+    term: int
+    index: int
+    raw: FLUXResponse
+
+
+@dataclass
+class AdminMetadataResult:
+    topics: list[str]
+    brokers: list[int]
+    raw: FLUXResponse
+
+
+class FLUXProtocolError(Exception):
+    def __init__(self, message: str, code: str, response: FLUXResponse):
         super().__init__(message)
         self.code = code
         self.response = response
 
 
-class RTESClient:
-    """Simple Python client for RTES line-based TCP protocol."""
+class FLUXClient:
+    """Simple Python client for FLUX line-based TCP protocol."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 9092, timeout_seconds: float = 5.0):
         self.host = host
@@ -232,9 +278,66 @@ class RTESClient:
             raw=resp,
         )
 
-    def send_command(self, command: str, args: str = "") -> RTESResponse:
+    def admin_create_topic(self, topic: str, partitions: int, replication_factor: int) -> AdminCreateTopicResult:
+        resp = self.send_command("ADMIN_CREATE_TOPIC", f"{topic} {partitions} {replication_factor}")
+        payload = self._must_payload(resp, "admin create topic payload missing")
+        return AdminCreateTopicResult(
+            topic=self._extract_string_field(payload, "topic"),
+            partitions=self._extract_int_field(payload, "partitions"),
+            replication_factor=self._extract_int_field(payload, "replication_factor"),
+            term=self._extract_int_field(payload, "term"),
+            index=self._extract_int_field(payload, "index"),
+            raw=resp,
+        )
+
+    def admin_register_broker(self, broker_id: int, host: str, port: int, epoch: Optional[int] = None) -> AdminRegisterBrokerResult:
+        suffix = f" {epoch}" if epoch is not None else ""
+        resp = self.send_command("ADMIN_REGISTER_BROKER", f"{broker_id} {host} {port}{suffix}")
+        payload = self._must_payload(resp, "admin register broker payload missing")
+        return AdminRegisterBrokerResult(
+            broker_id=self._extract_int_field(payload, "broker_id"),
+            host=self._extract_string_field(payload, "host"),
+            port=self._extract_int_field(payload, "port"),
+            term=self._extract_int_field(payload, "term"),
+            index=self._extract_int_field(payload, "index"),
+            raw=resp,
+        )
+
+    def admin_broker_heartbeat(self, broker_id: int) -> AdminBrokerHeartbeatResult:
+        resp = self.send_command("ADMIN_BROKER_HEARTBEAT", f"{broker_id}")
+        payload = self._must_payload(resp, "admin broker heartbeat payload missing")
+        return AdminBrokerHeartbeatResult(
+            broker_id=self._extract_int_field(payload, "broker_id"),
+            heartbeat_ok="heartbeat=ok" in payload,
+            term=self._extract_int_field(payload, "term"),
+            index=self._extract_int_field(payload, "index"),
+            raw=resp,
+        )
+
+    def admin_set_partition_leader(self, topic: str, partition: int, leader_id: int, isr: list[int]) -> AdminSetPartitionLeaderResult:
+        isr_csv = ",".join(str(v) for v in isr)
+        resp = self.send_command("ADMIN_SET_PARTITION_LEADER", f"{topic} {partition} {leader_id} {isr_csv}")
+        payload = self._must_payload(resp, "admin set partition leader payload missing")
+        return AdminSetPartitionLeaderResult(
+            topic=self._extract_string_field(payload, "topic"),
+            partition=self._extract_int_field(payload, "partition"),
+            leader=self._extract_int_field(payload, "leader"),
+            isr=self._extract_int_list_field(payload, "isr"),
+            term=self._extract_int_field(payload, "term"),
+            index=self._extract_int_field(payload, "index"),
+            raw=resp,
+        )
+
+    def admin_get_metadata(self) -> AdminMetadataResult:
+        resp = self.send_command("ADMIN_GET_METADATA")
+        payload = self._must_payload(resp, "admin get metadata payload missing")
+        topics = self._extract_list_field(payload, "topics")
+        brokers = [int(v) for v in self._extract_list_field(payload, "brokers") if v != ""]
+        return AdminMetadataResult(topics=topics, brokers=brokers, raw=resp)
+
+    def send_command(self, command: str, args: str = "") -> FLUXResponse:
         if self._sock is None or self._file is None:
-            raise RuntimeError("RTES client is not connected. Call connect() first.")
+            raise RuntimeError("FLUX client is not connected. Call connect() first.")
 
         with self._lock:
             correlation_id = str(self._correlation_seq)
@@ -245,7 +348,7 @@ class RTESClient:
 
             raw_line = self._file.readline()
             if raw_line == "":
-                raise ConnectionError("RTES connection closed by server")
+                raise ConnectionError("FLUX connection closed by server")
 
             response = self._parse_response(raw_line.strip())
             if response.correlation_id != correlation_id:
@@ -254,26 +357,26 @@ class RTESClient:
                 )
 
             if response.status == "ERR":
-                raise RTESProtocolError(
-                    response.message or "RTES protocol error",
+                raise FLUXProtocolError(
+                    response.message or "FLUX protocol error",
                     response.code or "UNKNOWN_ERROR",
                     response,
                 )
 
             return response
 
-    def _parse_response(self, line: str) -> RTESResponse:
+    def _parse_response(self, line: str) -> FLUXResponse:
         parts = line.split("|")
         if len(parts) < 3:
-            raise ValueError(f"Invalid RTES response: {line}")
+            raise ValueError(f"Invalid FLUX response: {line}")
 
         version, correlation_id, status = parts[0], parts[1], parts[2]
         if version != PROTOCOL_VERSION:
-            raise ValueError(f"Unsupported RTES response version: {version}")
+            raise ValueError(f"Unsupported FLUX response version: {version}")
 
         if status == "OK":
             payload = "|".join(parts[3:]) if len(parts) > 3 else ""
-            return RTESResponse(
+            return FLUXResponse(
                 version=version,
                 correlation_id=correlation_id,
                 status="OK",
@@ -284,7 +387,7 @@ class RTESClient:
         if status == "ERR":
             code = parts[3] if len(parts) > 3 else "UNKNOWN_ERROR"
             message = "|".join(parts[4:]) if len(parts) > 4 else "unknown error"
-            return RTESResponse(
+            return FLUXResponse(
                 version=version,
                 correlation_id=correlation_id,
                 status="ERR",
@@ -293,10 +396,10 @@ class RTESClient:
                 raw=line,
             )
 
-        raise ValueError(f"Unknown RTES response status: {status}")
+        raise ValueError(f"Unknown FLUX response status: {status}")
 
     @staticmethod
-    def _must_payload(resp: RTESResponse, fallback: str) -> str:
+    def _must_payload(resp: FLUXResponse, fallback: str) -> str:
         if resp.payload is None:
             raise ValueError(fallback)
         return resp.payload
@@ -350,3 +453,18 @@ class RTESClient:
         if start == -1:
             raise ValueError(f"Field {key} missing in payload: {payload}")
         return payload[start + len(token) :].split()[0].strip()
+
+    @staticmethod
+    def _extract_list_field(payload: str, key: str) -> list[str]:
+        token = f"{key}=["
+        start = payload.find(token)
+        if start == -1:
+            return []
+        rest = payload[start + len(token) :]
+        end = rest.find("]")
+        if end == -1:
+            raise ValueError(f"Field {key} malformed in payload: {payload}")
+        body = rest[:end].strip()
+        if body == "":
+            return []
+        return [v for v in body.split(" ") if v != ""]

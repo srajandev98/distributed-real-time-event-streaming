@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
-from .client import ConsumedMessage, RTESClient, RTESProtocolError
+from .client import ConsumedMessage, FLUXClient, FLUXProtocolError
 
 
 def _sleep_ms(ms: int) -> None:
@@ -13,7 +13,7 @@ def _sleep_ms(ms: int) -> None:
 
 
 def _is_generation_mismatch(err: Exception) -> bool:
-    return isinstance(err, RTESProtocolError) and err.code == "GENERATION_MISMATCH"
+    return isinstance(err, FLUXProtocolError) and err.code == "GENERATION_MISMATCH"
 
 
 def _with_retry(
@@ -57,10 +57,10 @@ class ConsumerRunContext:
     message: ConsumedMessage
 
 
-class RTESProducer:
+class FLUXProducer:
     def __init__(
         self,
-        client: RTESClient,
+        client: FLUXClient,
         max_retries: int = 3,
         retry_backoff_ms: int = 250,
         batch_size: int = 100,
@@ -100,10 +100,10 @@ class RTESProducer:
             self._client.close()
 
 
-class RTESConsumer:
+class FLUXConsumer:
     def __init__(
         self,
-        client: RTESClient,
+        client: FLUXClient,
         group_id: str,
         consumer_id: str,
         assignor: str = "round_robin",
@@ -311,7 +311,7 @@ class RTESConsumer:
         self._client.close()
 
 
-class RTESRuntime:
+class FLUXRuntime:
     def __init__(
         self,
         host: str = "127.0.0.1",
@@ -328,9 +328,9 @@ class RTESRuntime:
         retry_backoff_ms: int = 250,
         batch_size: int = 100,
         linger_ms: int = 0,
-    ) -> RTESProducer:
-        return RTESProducer(
-            client=RTESClient(
+    ) -> FLUXProducer:
+        return FLUXProducer(
+            client=FLUXClient(
                 host=self._host, port=self._port, timeout_seconds=self._timeout_seconds
             ),
             max_retries=max_retries,
@@ -353,9 +353,9 @@ class RTESRuntime:
         on_assign: Optional[Callable[[List[int]], None]] = None,
         on_revoke: Optional[Callable[[List[int]], None]] = None,
         on_crash: Optional[Callable[[Exception], None]] = None,
-    ) -> RTESConsumer:
-        return RTESConsumer(
-            client=RTESClient(
+    ) -> FLUXConsumer:
+        return FLUXConsumer(
+            client=FLUXClient(
                 host=self._host, port=self._port, timeout_seconds=self._timeout_seconds
             ),
             group_id=group_id,

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"real-time-event-streaming/internal/logging"
+	"flux/internal/logging"
 )
 
 const (
@@ -50,11 +50,11 @@ type GroupMember struct {
 }
 
 type persistedGroupState struct {
-	Topic       string                `json:"topic"`
-	Generation  int                   `json:"generation"`
-	Assignor    string                `json:"assignor"`
-	MemberOrder []string              `json:"member_order"`
-	Assignments map[string][]int      `json:"assignments"`
+	Topic       string                 `json:"topic"`
+	Generation  int                    `json:"generation"`
+	Assignor    string                 `json:"assignor"`
+	MemberOrder []string               `json:"member_order"`
+	Assignments map[string][]int       `json:"assignments"`
 	Members     []persistedGroupMember `json:"members"`
 }
 

@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"real-time-event-streaming/internal/broker"
-	"real-time-event-streaming/internal/logging"
-	"real-time-event-streaming/internal/protocol"
+	"flux/internal/broker"
+	"flux/internal/logging"
+	"flux/internal/protocol"
 )
 
 // HandleConnection is the request loop for one client TCP connection.
@@ -92,6 +92,14 @@ func handleProduce(req *protocol.Request, b *broker.Broker) string {
 
 	key := messageParts[0]
 	value := messageParts[1]
+	topicMetadata, err := b.EnsureTopicMetadata(topic)
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	partitionCount := len(topicMetadata.Partitions)
+	if partitionCount <= 0 {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "topic has no partitions")
+	}
 
 	ackMode := "1"
 	if len(req.Args) == 3 {
@@ -105,12 +113,19 @@ func handleProduce(req *protocol.Request, b *broker.Broker) string {
 		}
 	}
 
-	partition := b.Storage.PartitionForKey(key)
+	partition := b.Storage.PartitionForKeyWithCount(key, partitionCount)
+	partitionMetadata, exists := topicMetadata.Partitions[partition]
+	if !exists {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "partition metadata missing")
+	}
+	if partitionMetadata.LeaderID != b.LocalBrokerID {
+		return protocol.Err(req.CorrelationID, "NOT_LEADER", "partition leader unavailable on this broker")
+	}
 	if !b.Replication.IsLeader(topic, partition) {
 		return protocol.Err(req.CorrelationID, "NOT_LEADER", "partition leader unavailable on this broker")
 	}
 
-	partition, offset := b.Storage.Produce(topic, key, value)
+	partition, offset := b.Storage.ProduceToPartition(topic, partition, value)
 	b.Replication.OnLeaderAppend(topic, partition, offset)
 
 	if ackMode == "all" {
@@ -135,8 +150,15 @@ func handleSetPartitionRole(req *protocol.Request, b *broker.Broker) string {
 	if err != nil {
 		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
 	}
+	if _, err := b.EnsureTopicMetadata(topic); err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
 	role := strings.ToLower(req.Args[2])
 	if err := b.Replication.SetRole(topic, partition, role); err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	leaderID := b.LocalBrokerID
+	if _, err := b.Controller.SetPartitionLeader(topic, partition, leaderID, []int{b.LocalBrokerID}); err != nil {
 		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
 	}
 	status := b.Replication.Status(topic, partition)
@@ -157,6 +179,13 @@ func handleConsume(req *protocol.Request, b *broker.Broker) string {
 	offset, err := protocol.ParseInt(req.Args[2], "offset")
 	if err != nil {
 		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	topicMetadata, err := b.EnsureTopicMetadata(topic)
+	if err != nil {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", err.Error())
+	}
+	if _, exists := topicMetadata.Partitions[partition]; !exists {
+		return protocol.Err(req.CorrelationID, "BAD_REQUEST", "invalid partition")
 	}
 
 	highWatermark := b.Replication.HighWatermark(topic, partition)

@@ -1,8 +1,8 @@
-# real-time-event-streaming
+# Flux
 
 A lightweight distributed event streaming platform written in Go.
 
-`real-time-event-streaming` is a distributed log-based messaging and event streaming system inspired by modern streaming platforms such as:
+`Flux` is a distributed log-based messaging and event streaming system inspired by modern streaming platforms such as:
 - Apache BookKeeper
 - Redpanda
 - Apache Pulsar
@@ -136,7 +136,7 @@ The current implementation already includes the foundational building blocks of 
 The codebase is organized around subsystem boundaries rather than feature grouping.
 
 ```text
-real-time-event-streaming/
+flux/
 │
 ├── cmd/
 │   └── broker/
@@ -416,7 +416,7 @@ go run ./cmd/broker
 Expected output:
 
 ```text
-real-time-event-streaming broker listening on port 9092
+flux broker listening on port 9092
 ```
 
 ---
@@ -436,7 +436,7 @@ real-time-event-streaming broker listening on port 9092
 docker compose up --build -d
 ```
 
-This starts the broker on `localhost:9092` and persists broker data in a named volume (`rtes_data`).
+This starts the broker on `localhost:9092` and persists broker data in a named volume (`flux_data`).
 
 ---
 
@@ -466,9 +466,9 @@ docker compose down -v
 
 ## Runtime Configuration (Environment Variables)
 
-- `RTES_LISTEN_ADDR` default: `:9092`
-- `RTES_DATA_DIR` default: `/app/data`
-- `RTES_NUM_PARTITIONS` default: `3`
+- `FLUX_LISTEN_ADDR` default: `:9092`
+- `FLUX_DATA_DIR` default: `/app/data`
+- `FLUX_NUM_PARTITIONS` default: `3`
 
 Update these values in `docker-compose.yml` under `services.broker.environment`.
 
@@ -476,7 +476,7 @@ Update these values in `docker-compose.yml` under `services.broker.environment`.
 
 # SDKs
 
-RTES SDKs are available under:
+FLUX SDKs are available under:
 
 ```text
 ../../packages/sdk/typescript

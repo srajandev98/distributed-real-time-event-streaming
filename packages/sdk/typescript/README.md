@@ -1,6 +1,6 @@
-# RTES TypeScript SDK
+# FLUX TypeScript SDK
 
-TypeScript client SDK for Real-time Event Streaming (RTES).
+TypeScript client SDK for Real-time Event Streaming (FLUX).
 
 ## Install
 
@@ -22,10 +22,10 @@ pnpm run build
 ## Usage
 
 ```ts
-import { RTESClient } from '@rtes/typescript-sdk';
+import { FLUXClient } from '@flux/typescript-sdk';
 
 async function run() {
-  const client = new RTESClient({ host: '127.0.0.1', port: 9092 });
+  const client = new FLUXClient({ host: '127.0.0.1', port: 9092 });
 
   await client.connect();
 
@@ -52,6 +52,16 @@ async function run() {
 
   const role = await client.setPartitionRole('orders', produced.partition, 'leader');
   console.log('role', role);
+
+  const adminTopic = await client.adminCreateTopic('payments', 3, 2);
+  console.log('admin topic', adminTopic);
+  await client.adminRegisterBroker(1, '127.0.0.1', 9093);
+  const adminHeartbeat = await client.adminBrokerHeartbeat(1);
+  console.log('admin heartbeat', adminHeartbeat);
+  const adminLeader = await client.adminSetPartitionLeader('payments', 0, 1, [1, 0]);
+  console.log('admin set leader', adminLeader);
+  const metadata = await client.adminGetMetadata();
+  console.log('metadata', metadata);
 
   await client.leave('analytics', 'orders', 'consumer-a', join.generation);
   await client.close();
@@ -85,7 +95,7 @@ node examples/dist/basic-usage.js
 
 - `connect(): Promise<void>`
 - `close(): Promise<void>`
-- `sendCommand(command: string, args?: string): Promise<RTESResponse>`
+- `sendCommand(command: string, args?: string): Promise<FLUXResponse>`
 - `produce(topic: string, key: string, value: string, acks?: '0' | '1' | 'all'): Promise<ProduceResult>`
 - `consume(topic: string, partition: number, offset: number): Promise<ConsumedMessage[]>`
 - `join(group: string, topic: string, consumerId: string, assignor?: 'round_robin' | 'range'): Promise<JoinResult>`
@@ -96,10 +106,15 @@ node examples/dist/basic-usage.js
 - `offset(group: string, topic: string, partition: number): Promise<number>`
 - `replicaFetch(topic: string, partition: number, replicaId: number, offset: number): Promise<ReplicaFetchResult>`
 - `setPartitionRole(topic: string, partition: number, role: 'leader' | 'follower'): Promise<PartitionRoleResult>`
+- `adminCreateTopic(topic: string, partitions: number, replicationFactor: number): Promise<AdminCreateTopicResult>`
+- `adminRegisterBroker(brokerId: number, host: string, port: number, epoch?: number): Promise<AdminRegisterBrokerResult>`
+- `adminBrokerHeartbeat(brokerId: number): Promise<AdminBrokerHeartbeatResult>`
+- `adminSetPartitionLeader(topic: string, partition: number, leaderId: number, isr: number[]): Promise<AdminSetPartitionLeaderResult>`
+- `adminGetMetadata(): Promise<AdminMetadataResult>`
 
 ## Errors
 
-Protocol errors are thrown as `RTESProtocolError` with:
+Protocol errors are thrown as `FLUXProtocolError` with:
 
 - `code` (for example `BAD_REQUEST`, `UNKNOWN_COMMAND`)
 - `message`

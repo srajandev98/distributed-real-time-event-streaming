@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"real-time-event-streaming/internal/logging"
+	"flux/internal/logging"
 )
 
 // OffsetManager persists committed offsets per group/topic/partition.
