@@ -9,6 +9,14 @@ from .client import (
     RTESProtocolError,
     RTESResponse,
 )
+from .runtime import (
+    ConsumerRunContext,
+    ProducerMessage,
+    ProducerSendParams,
+    RTESConsumer,
+    RTESRuntime,
+    RTESProducer,
+)
 
 __all__ = [
     "RTESClient",
@@ -20,4 +28,10 @@ __all__ = [
     "JoinResult",
     "SyncResult",
     "PartitionRoleResult",
+    "RTESRuntime",
+    "RTESProducer",
+    "RTESConsumer",
+    "ProducerMessage",
+    "ProducerSendParams",
+    "ConsumerRunContext",
 ]

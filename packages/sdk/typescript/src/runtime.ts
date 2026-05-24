@@ -1,7 +1,7 @@
 import { RTESClient } from './client';
 import type { AckMode, ConsumedMessage, RTESClientOptions } from './types';
 
-export interface RTESKafkaOptions extends RTESClientOptions {}
+export interface RTESRuntimeOptions extends RTESClientOptions {}
 
 export interface ProducerSendParams {
   topic: string;
@@ -83,10 +83,10 @@ async function withRetry<T>(
   }
 }
 
-export class RTESKafka {
-  private readonly options: RTESKafkaOptions;
+export class RTESRuntime {
+  private readonly options: RTESRuntimeOptions;
 
-  constructor(options: RTESKafkaOptions = {}) {
+  constructor(options: RTESRuntimeOptions = {}) {
     this.options = options;
   }
 
@@ -115,7 +115,7 @@ export class RTESKafka {
                 retryBackoffMs,
               );
             }
-            if (lingerMs > 0 && i+batchSize < messages.length) {
+            if (lingerMs > 0 && i + batchSize < messages.length) {
               await sleep(lingerMs);
             }
           }

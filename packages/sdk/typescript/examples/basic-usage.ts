@@ -1,4 +1,4 @@
-import { RTESKafka } from '../dist';
+import { RTESRuntime } from '../dist';
 
 const config = {
   host: process.env.RTES_HOST || '127.0.0.1',
@@ -13,18 +13,18 @@ const config = {
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
-  const kafka = new RTESKafka({
+  const runtime = new RTESRuntime({
     host: config.host,
     port: config.port,
     timeoutMs: config.timeoutMs,
   });
-  const producer = kafka.producer({
+  const producer = runtime.producer({
     maxRetries: 5,
     retryBackoffMs: 200,
     batchSize: 200,
     lingerMs: 5,
   });
-  const consumer = kafka.consumer({
+  const consumer = runtime.consumer({
     groupId: config.group,
     consumerId: config.consumerId,
     assignor: 'round_robin',

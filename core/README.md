@@ -3,7 +3,7 @@
 A lightweight distributed event streaming platform written in Go.
 
 `real-time-event-streaming` is a distributed log-based messaging and event streaming system inspired by modern streaming platforms such as:
-- Apache Kafka
+- Apache BookKeeper
 - Redpanda
 - Apache Pulsar
 - NATS

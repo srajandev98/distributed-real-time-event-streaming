@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"real-time-event-streaming/internal/config"
+	"real-time-event-streaming/internal/controlplane"
 	"real-time-event-streaming/internal/coordinator"
 	"real-time-event-streaming/internal/logging"
 	"real-time-event-streaming/internal/replication"
@@ -15,6 +16,7 @@ type Broker struct {
 	Storage     *storage.Storage
 	Coordinator *coordinator.Coordinator
 	Replication *replication.Manager
+	Controller  *controlplane.Controller
 }
 
 // NewBroker wires storage + coordinator using shared runtime config.
@@ -35,5 +37,6 @@ func NewBroker(cfg *config.Config) *Broker {
 		Storage:     storage.NewStorage(cfg),
 		Coordinator: coordinator.NewCoordinator(cfg),
 		Replication: replicationManager,
+		Controller:  controlplane.NewController(controlplane.NewRaftMetadataStore()),
 	}
 }

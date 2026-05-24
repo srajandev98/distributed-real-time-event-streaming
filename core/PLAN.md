@@ -89,11 +89,11 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 - ~~Durable group metadata and member generation IDs.~~
 - ~~Offset commit validation against member generation.~~
 - ~~Enforce unique member identity per group and reject duplicate joins safely.~~
-- ~~TypeScript SDK: Kafka-style `producer.send(...)` and `consumer.subscribe(...)/run(...)` APIs.~~
+- ~~TypeScript SDK: high-level `producer.send(...)` and `consumer.subscribe(...)/run(...)` APIs.~~
 - ~~TypeScript SDK: automatic consumer lifecycle management (join/sync/heartbeat/leave/commit).~~
 - ~~TypeScript SDK: rebalance and crash hooks (`onAssign`, `onRevoke`, `onCrash`).~~
 - ~~TypeScript SDK: producer/consumer retry and backoff controls.~~
-- Python SDK: high-level Kafka-style producer/consumer runtime APIs (to mirror TypeScript ergonomics).
+- ~~Python SDK: high-level producer/consumer runtime APIs (to mirror TypeScript ergonomics).~~
 
 **Exit Criteria**
 - Rebalance correctness under member joins/leaves/crashes.
@@ -102,7 +102,7 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 
 ## Phase 4: Metadata Quorum and Cluster Control Plane (4-6 weeks)
 
-- Build controller service with Raft-based metadata store.
+- ~~Build controller service with Raft-based metadata store (scaffolded in `internal/controlplane`).~~
 - Migrate topic/partition metadata from local state to quorum.
 - Implement leader election for partitions.
 - Add broker registration, health, and fencing.
@@ -175,11 +175,11 @@ This document is the execution roadmap for evolving `real-time-event-streaming` 
 
 ## 9. Immediate Backlog (Next 2 Weeks)
 
-1. Refactor storage into segmented logs.
+1. ~~Refactor storage into segmented logs.~~
 2. Add GitHub Actions CI with lint + race + tests.
 3. Introduce Prometheus metrics skeleton.
-4. Scaffold `internal/replication` with interfaces and integration test harness.
-5. Add consumer-group generation ID and duplicate-member guard in coordinator.
+4. ~~Scaffold `internal/replication` with interfaces and integration test harness.~~
+5. ~~Add consumer-group generation ID and duplicate-member guard in coordinator.~~
 
 ## 10. Risks and Mitigations
 

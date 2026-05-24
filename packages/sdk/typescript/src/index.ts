@@ -1,5 +1,5 @@
 export { RTESClient } from './client';
-export { RTESKafka } from './kafka';
+export { RTESRuntime } from './runtime';
 export { RTESProtocolError } from './errors';
 
 export type {
@@ -15,11 +15,11 @@ export type {
 } from './types';
 
 export type {
-  RTESKafkaOptions,
+  RTESRuntimeOptions,
   RTESProducer,
   RTESConsumer,
   ProducerSendParams,
   ConsumerRunConfig,
   ConsumerRunContext,
   RTESConsumerOptions,
-} from './kafka';
+} from './runtime';
