@@ -1,7 +1,10 @@
 import { FLUXClient } from './client';
+import { FLUXProtocolError } from './errors';
 import type { AckMode, ConsumedMessage, FLUXClientOptions } from './types';
 
-export interface FLUXRuntimeOptions extends FLUXClientOptions {}
+export interface FLUXRuntimeOptions extends FLUXClientOptions {
+  brokers?: Array<{ host: string; port: number }>;
+}
 
 export interface ProducerSendParams {
   topic: string;
@@ -64,6 +67,7 @@ async function withRetry<T>(
   fn: () => Promise<T>,
   maxRetries: number,
   retryBackoffMs: number,
+  onRetry?: (err: unknown, attempt: number) => Promise<void> | void,
 ): Promise<T> {
   let attempt = 0;
   for (;;) {
@@ -78,9 +82,25 @@ async function withRetry<T>(
       const message = err instanceof Error ? err.message : String(err);
       // eslint-disable-next-line no-console
       console.warn(`${operationName} failed (attempt ${attempt}/${maxRetries + 1}): ${message}`);
+      if (onRetry) {
+        await onRetry(err, attempt);
+      }
       await sleep(backoff);
     }
   }
+}
+
+function isRetryableBrokerError(err: unknown): boolean {
+  if (err instanceof FLUXProtocolError && err.code === 'NOT_LEADER') {
+    return true;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    message.includes('connection closed') ||
+    message.includes('ECONNREFUSED') ||
+    message.includes('timed out') ||
+    message.includes('socket hang up')
+  );
 }
 
 export class FLUXRuntime {
@@ -91,7 +111,29 @@ export class FLUXRuntime {
   }
 
   producer(options: FLUXProducerOptions = {}): FLUXProducer {
-    const client = new FLUXClient(this.options);
+    const endpoints =
+      this.options.brokers && this.options.brokers.length > 0
+        ? this.options.brokers
+        : [{ host: this.options.host ?? '127.0.0.1', port: this.options.port ?? 9092 }];
+    let endpointIndex = 0;
+    let client = new FLUXClient({
+      host: endpoints[endpointIndex].host,
+      port: endpoints[endpointIndex].port,
+      timeoutMs: this.options.timeoutMs,
+    });
+    const rotateClient = async (): Promise<void> => {
+      endpointIndex = (endpointIndex + 1) % endpoints.length;
+      try {
+        await client.close();
+      } catch {
+        // best effort
+      }
+      client = new FLUXClient({
+        host: endpoints[endpointIndex].host,
+        port: endpoints[endpointIndex].port,
+        timeoutMs: this.options.timeoutMs,
+      });
+    };
     const maxRetries = options.maxRetries ?? 3;
     const retryBackoffMs = options.retryBackoffMs ?? 250;
     const batchSize = options.batchSize ?? 100;
@@ -103,7 +145,11 @@ export class FLUXRuntime {
           return;
         }
 
-        await withRetry('producer.connect', () => client.connect(), maxRetries, retryBackoffMs);
+        await withRetry('producer.connect', () => client.connect(), maxRetries, retryBackoffMs, async (err) => {
+          if (isRetryableBrokerError(err)) {
+            await rotateClient();
+          }
+        });
         try {
           for (let i = 0; i < messages.length; i += batchSize) {
             const batch = messages.slice(i, i + batchSize);
@@ -113,6 +159,12 @@ export class FLUXRuntime {
                 () => client.produce(topic, msg.key, msg.value, acks),
                 maxRetries,
                 retryBackoffMs,
+                async (err) => {
+                  if (isRetryableBrokerError(err)) {
+                    await rotateClient();
+                    await client.connect();
+                  }
+                },
               );
             }
             if (lingerMs > 0 && i + batchSize < messages.length) {
@@ -127,7 +179,29 @@ export class FLUXRuntime {
   }
 
   consumer(options: FLUXConsumerOptions): FLUXConsumer {
-    const client = new FLUXClient(this.options);
+    const endpoints =
+      this.options.brokers && this.options.brokers.length > 0
+        ? this.options.brokers
+        : [{ host: this.options.host ?? '127.0.0.1', port: this.options.port ?? 9092 }];
+    let endpointIndex = 0;
+    let client = new FLUXClient({
+      host: endpoints[endpointIndex].host,
+      port: endpoints[endpointIndex].port,
+      timeoutMs: this.options.timeoutMs,
+    });
+    const rotateClient = async (): Promise<void> => {
+      endpointIndex = (endpointIndex + 1) % endpoints.length;
+      try {
+        await client.close();
+      } catch {
+        // best effort
+      }
+      client = new FLUXClient({
+        host: endpoints[endpointIndex].host,
+        port: endpoints[endpointIndex].port,
+        timeoutMs: this.options.timeoutMs,
+      });
+    };
     const assignor = options.assignor ?? 'round_robin';
     const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 2000;
     const pollIntervalMs = options.pollIntervalMs ?? 500;
@@ -140,7 +214,7 @@ export class FLUXRuntime {
     let generation = 0;
     let assigned: number[] = [];
     let running = false;
-    let heartbeatTimer: NodeJS.Timeout | null = null;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let rejoinNeeded = false;
 
     const runAssignCallback = async (nextAssigned: number[]): Promise<void> => {
@@ -167,6 +241,12 @@ export class FLUXRuntime {
         () => client.join(options.groupId, topic, options.consumerId, assignor),
         maxRetries,
         retryBackoffMs,
+        async (err) => {
+          if (isRetryableBrokerError(err)) {
+            await rotateClient();
+            await client.connect();
+          }
+        },
       );
       generation = joined.generation;
 
@@ -175,6 +255,12 @@ export class FLUXRuntime {
         () => client.sync(options.groupId, topic, options.consumerId, generation),
         maxRetries,
         retryBackoffMs,
+        async (err) => {
+          if (isRetryableBrokerError(err)) {
+            await rotateClient();
+            await client.connect();
+          }
+        },
       );
       generation = synced.generation;
       await runAssignCallback(synced.assigned);
@@ -192,6 +278,9 @@ export class FLUXRuntime {
             if (isGenerationMismatch(err)) {
               rejoinNeeded = true;
               return;
+            }
+            if (isRetryableBrokerError(err)) {
+              void rotateClient();
             }
             if (!running) {
               return;
@@ -216,7 +305,11 @@ export class FLUXRuntime {
         }
 
         running = true;
-        await withRetry('consumer.connect', () => client.connect(), maxRetries, retryBackoffMs);
+        await withRetry('consumer.connect', () => client.connect(), maxRetries, retryBackoffMs, async (err) => {
+          if (isRetryableBrokerError(err)) {
+            await rotateClient();
+          }
+        });
         await joinAndSync();
         startHeartbeat();
 
@@ -241,12 +334,24 @@ export class FLUXRuntime {
                   () => client.offset(options.groupId, topic, partition),
                   maxRetries,
                   retryBackoffMs,
+                  async (err) => {
+                    if (isRetryableBrokerError(err)) {
+                      await rotateClient();
+                      await client.connect();
+                    }
+                  },
                 );
                 const messages = await withRetry(
                   'consumer.consume',
                   () => client.consume(topic, partition, startOffset),
                   maxRetries,
                   retryBackoffMs,
+                  async (err) => {
+                    if (isRetryableBrokerError(err)) {
+                      await rotateClient();
+                      await client.connect();
+                    }
+                  },
                 );
 
                 for (const message of messages) {
@@ -265,9 +370,15 @@ export class FLUXRuntime {
                         generation,
                         partition,
                         nextOffset,
-                      ),
+                    ),
                     maxRetries,
                     retryBackoffMs,
+                    async (err) => {
+                      if (isRetryableBrokerError(err)) {
+                        await rotateClient();
+                        await client.connect();
+                      }
+                    },
                   );
                 }
               } catch (err) {

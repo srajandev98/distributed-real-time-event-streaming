@@ -63,6 +63,23 @@ run().catch((err) => {
 });
 ```
 
+## Runtime failover (multi-broker)
+
+```ts
+import { FLUXRuntime } from '@flux/typescript-sdk';
+
+const runtime = new FLUXRuntime({
+  brokers: [
+    { host: '127.0.0.1', port: 9092 },
+    { host: '127.0.0.1', port: 9093 },
+    { host: '127.0.0.1', port: 9094 },
+  ],
+});
+```
+
+When enabled, producer/consumer runtime operations automatically rotate to the next broker on
+`NOT_LEADER` and common transient connection failures.
+
 
 ## Example
 

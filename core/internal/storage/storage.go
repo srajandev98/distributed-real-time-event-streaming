@@ -207,6 +207,22 @@ func (s *Storage) PartitionForKey(key string) int {
 	return getPartition(key, s.numPartitions)
 }
 
+// LastOffset returns the last known local offset for topic/partition, or -1.
+func (s *Storage) LastOffset(topic string, partition int) int {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	partitions, ok := s.data[topic]
+	if !ok {
+		return -1
+	}
+	messages, ok := partitions[partition]
+	if !ok || len(messages) == 0 {
+		return -1
+	}
+	return messages[len(messages)-1].Offset
+}
+
 func (s *Storage) writeLocalReplicas(topic string, partition int, segmentID int, line string) {
 	for replicaID := 1; replicaID <= s.localReplicaCount; replicaID++ {
 		path := s.replicaSegmentPath(topic, partition, replicaID, segmentID)

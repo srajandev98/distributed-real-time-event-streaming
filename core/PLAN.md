@@ -24,6 +24,7 @@ This document is the execution roadmap for evolving `Flux` into a production-gra
 - Broker failover via controller/metadata quorum.
 - Rolling upgrade support and backward-compatible protocol evolution.
 - Production telemetry (metrics/logs/traces), alerting, and admin tooling.
+- High-level client abstractions that keep distributed-systems concerns broker/runtime-managed by default.
 
 ## 4. Architecture Targets
 
@@ -117,11 +118,11 @@ This document is the execution roadmap for evolving `Flux` into a production-gra
 
 - ~~Implement broker-to-broker replication RPC contract (`BROKER_FETCH`, `BROKER_REPLICA_ACK`) and TCP transport client scaffold.~~
 - ~~Add follower replication loop scaffold (fetch -> apply -> ack) with unit + integration harness coverage.~~
-- Implement real broker-to-broker network replication across separate nodes.
-- Run leader/follower replicas as independent broker processes (not same-node mirror files).
-- Add fetch/append replication pipeline with backpressure and retry semantics.
-- Enforce committed-read visibility based on replicated high watermark across nodes.
-- Validate real failover behavior: leader crash -> election -> follower promotion -> continued produce/consume.
+- ~~Implement real broker-to-broker network replication across separate nodes.~~
+- ~~Run leader/follower replicas as independent broker processes (not same-node mirror files).~~
+- ~~Add fetch/append replication pipeline with backpressure and retry semantics.~~
+- ~~Enforce committed-read visibility based on replicated high watermark across nodes.~~
+- ~~Validate real failover behavior: leader crash -> election -> follower promotion -> continued produce/consume.~~
 - ~~Add multi-node cluster bootstrap configuration (broker IDs, peer list, advertised listeners).~~
 
 **Exit Criteria**
@@ -154,7 +155,22 @@ This document is the execution roadmap for evolving `Flux` into a production-gra
 - Encrypted traffic verified end-to-end.
 - Quota enforcement validated by load tests.
 
-## Phase 8: Observability and Operations (2-3 weeks)
+## Phase 8: Developer Experience and Abstraction Hardening (2-4 weeks) [MUST]
+
+- Ship high-level producer/consumer defaults where reliability is safe-by-default (no required low-level tuning for common use cases).
+- Minimize end-user exposure to partition leadership, ISR, rebalance, and failover internals in app-facing APIs.
+- Provide runtime-managed retries/backoff/rejoin/recovery paths as default behavior, not opt-in complexity.
+- Add first-class idempotent-consumer utilities/patterns in SDKs to reduce duplicate-processing burden in at-least-once flows.
+- Add opinionated presets/profiles (`dev`, `balanced`, `durable`) that map to low-level cluster and client tuning knobs.
+- Add abstraction contract tests to validate that common app flows work without distributed-systems-specific user logic.
+- Improve docs/examples to emphasize high-level workflows and operational guardrails, not protocol-level mechanics.
+
+**Exit Criteria**
+- A new user can build a production-like producer/consumer flow using high-level SDK APIs without handling distributed internals directly.
+- Default SDK/runtime behavior remains correct under retry/rebalance/follower lag scenarios in integration tests.
+- Public examples avoid requiring direct use of low-level commands for standard app workflows.
+
+## Phase 9: Observability and Operations (2-3 weeks)
 
 - Prometheus metrics and OpenTelemetry traces.
 - Structured logs with request correlation.
@@ -167,7 +183,7 @@ This document is the execution roadmap for evolving `Flux` into a production-gra
 - Common incident workflows documented and tested.
 - On-call playbook available for top failure modes.
 
-## Phase 9: Performance and Scale Validation (ongoing)
+## Phase 10: Performance and Scale Validation (ongoing)
 
 - Benchmark harness (produce/fetch throughput, p99 latency).
 - Soak tests (24h+), chaos tests, and fault injection.
@@ -200,8 +216,8 @@ This document is the execution roadmap for evolving `Flux` into a production-gra
 - **M2 (HA Data Plane):** End of Phase 2-3
 - **M3 (Clustered Control Plane):** End of Phase 4
 - **M4 (Real Distributed Runtime):** End of Phase 5-6
-- **M5 (Prod Readiness):** End of Phase 7-8
-- **M6 (Scale Validation):** Phase 9 targets met
+- **M5 (Prod Readiness):** End of Phase 7-9
+- **M6 (Scale Validation):** Phase 10 targets met
 
 ## 9. Immediate Backlog (Next 2 Weeks)
 

@@ -158,7 +158,7 @@ func (m *Manager) WaitForAckAll(topic string, partition int, targetOffset int) e
 		if time.Now().After(deadline) {
 			return fmt.Errorf("acks=all timeout")
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 }
 
@@ -194,6 +194,23 @@ func (m *Manager) SetRole(topic string, partition int, role string) error {
 	}
 	m.recomputeLocked(topic, partition, ps, time.Now())
 	return nil
+}
+
+// BootstrapOffset seeds leader/follower offset state from durable local storage.
+// This is used when a broker process becomes leader/follower for a partition and
+// already has replicated data on disk.
+func (m *Manager) BootstrapOffset(topic string, partition int, offset int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ps := m.ensurePartition(topic, partition)
+	if offset > ps.leaderOffset {
+		ps.leaderOffset = offset
+	}
+	if ps.role == "follower" {
+		ps.highWatermark = offset
+	}
+	m.recomputeLocked(topic, partition, ps, time.Now())
 }
 
 func (m *Manager) Status(topic string, partition int) Status {

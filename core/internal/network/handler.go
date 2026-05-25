@@ -429,17 +429,16 @@ func handleBrokerFetch(req *protocol.Request, b *broker.Broker) string {
 		return protocol.Err(req.CorrelationID, "NOT_LEADER", "partition leader unavailable on this broker")
 	}
 
-	highWatermark := b.Replication.HighWatermark(topic, partition)
-	if highWatermark < 0 || offset > highWatermark {
+	status := b.Replication.Status(topic, partition)
+	highWatermark := status.HighWatermark
+	leaderOffset := status.LeaderOffset
+	if leaderOffset < 0 || offset > leaderOffset {
 		return protocol.Ok(req.CorrelationID, fmt.Sprintf("topic=%s partition=%d follower=%d hw=%d records=", topic, partition, followerID, highWatermark))
 	}
 
 	messages := b.Storage.Consume(topic, partition, offset)
 	records := make([]string, 0, maxMessages)
 	for _, msg := range messages {
-		if msg.Offset > highWatermark {
-			break
-		}
 		records = append(records, fmt.Sprintf("%d:%s", msg.Offset, msg.Value))
 		if len(records) >= maxMessages {
 			break

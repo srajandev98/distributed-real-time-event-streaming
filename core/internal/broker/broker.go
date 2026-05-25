@@ -24,6 +24,7 @@ type Broker struct {
 	LocalBrokerID            int
 	DefaultPartitions        int
 	DefaultReplicationFactor int
+	clusterRuntime           *clusterRuntime
 }
 
 // NewBroker wires storage + coordinator using shared runtime config.
@@ -50,6 +51,7 @@ func NewBroker(cfg *config.Config) *Broker {
 		DefaultReplicationFactor: cfg.ReplicationFactor,
 	}
 	b.bootstrapControllerMetadata(cfg)
+	b.clusterRuntime = newClusterRuntime(b, cfg)
 	return b
 }
 
@@ -101,11 +103,41 @@ func (b *Broker) EnsureTopicMetadata(topic string) (controlplane.TopicMetadata, 
 	if _, err := b.Controller.CreateTopic(topic, b.DefaultPartitions, b.DefaultReplicationFactor); err != nil {
 		return controlplane.TopicMetadata{}, err
 	}
+	updated := b.Controller.Snapshot()
+	md := updated.Topics[topic]
+	brokerIDs := make([]int, 0, len(updated.Brokers))
+	for id, broker := range updated.Brokers {
+		if broker.Fenced {
+			continue
+		}
+		brokerIDs = append(brokerIDs, id)
+	}
+	if len(brokerIDs) == 0 {
+		brokerIDs = append(brokerIDs, b.LocalBrokerID)
+	}
+	leaders := assignInitialLeaders(md, brokerIDs)
 	for partition := 0; partition < b.DefaultPartitions; partition++ {
-		if _, err := b.Controller.SetPartitionLeader(topic, partition, b.LocalBrokerID, []int{b.LocalBrokerID}); err != nil {
+		leaderID, ok := leaders[partition]
+		if !ok {
+			leaderID = b.LocalBrokerID
+		}
+		isr := []int{leaderID}
+		if _, err := b.Controller.SetPartitionLeader(topic, partition, leaderID, isr); err != nil {
 			return controlplane.TopicMetadata{}, err
 		}
 	}
-	updated := b.Controller.Snapshot()
+	updated = b.Controller.Snapshot()
 	return updated.Topics[topic], nil
+}
+
+func (b *Broker) StartBackgroundRuntimes() {
+	if b.clusterRuntime != nil {
+		b.clusterRuntime.start()
+	}
+}
+
+func (b *Broker) StopBackgroundRuntimes() {
+	if b.clusterRuntime != nil {
+		b.clusterRuntime.stop()
+	}
 }

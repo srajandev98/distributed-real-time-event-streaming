@@ -74,6 +74,23 @@ def handle_message(ctx):
 consumer.run(handle_message)
 ```
 
+## Runtime failover (multi-broker)
+
+```python
+from flux_sdk import FLUXRuntime
+
+runtime = FLUXRuntime(
+    brokers=[
+        ("127.0.0.1", 9092),
+        ("127.0.0.1", 9093),
+        ("127.0.0.1", 9094),
+    ]
+)
+```
+
+When enabled, runtime producer sends automatically rotate to the next broker on
+`NOT_LEADER` and common transient connection failures.
+
 ## Admin APIs (Operator Flow)
 
 Admin APIs are intended for platform/operator workflows, not typical app producer/consumer code paths.

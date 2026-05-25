@@ -19,6 +19,8 @@ func main() {
 	}
 
 	b := broker.NewBroker(cfg)
+	b.StartBackgroundRuntimes()
+	defer b.StopBackgroundRuntimes()
 
 	listener, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {

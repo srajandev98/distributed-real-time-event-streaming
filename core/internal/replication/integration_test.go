@@ -100,6 +100,114 @@ func TestFollowerWorkerWithTCPTransport(t *testing.T) {
 	}
 }
 
+func TestClusterRuntimeReplicatesAcrossBrokersAndFailsOver(t *testing.T) {
+	leaderCfg := &config.Config{
+		ListenAddr:             ":0",
+		AdvertisedHost:         "127.0.0.1",
+		AdvertisedPort:         19092,
+		BrokerID:               0,
+		ClusterPeers:           []string{"0@127.0.0.1:19092", "1@127.0.0.1:19093"},
+		DataDir:                t.TempDir(),
+		NumPartitions:          1,
+		ReplicationFactor:      2,
+		MinInSyncReplicas:      2,
+		ReplicaMaxLag:          0,
+		ReplicaLagTimeoutMs:    10_000,
+		AckAllTimeoutMs:        1000,
+		SegmentMaxBytes:        1024 * 1024,
+		RetentionMaxBytes:      50 * 1024 * 1024,
+		RetentionMaxAgeSeconds: 86400,
+		FlushIntervalMs:        1000,
+		FlushBytes:             64 * 1024,
+		FsyncMode:              "always",
+	}
+	followerCfg := &config.Config{
+		ListenAddr:             ":0",
+		AdvertisedHost:         "127.0.0.1",
+		AdvertisedPort:         19093,
+		BrokerID:               1,
+		ClusterPeers:           []string{"0@127.0.0.1:19092", "1@127.0.0.1:19093"},
+		DataDir:                t.TempDir(),
+		NumPartitions:          1,
+		ReplicationFactor:      2,
+		MinInSyncReplicas:      2,
+		ReplicaMaxLag:          0,
+		ReplicaLagTimeoutMs:    10_000,
+		AckAllTimeoutMs:        1000,
+		SegmentMaxBytes:        1024 * 1024,
+		RetentionMaxBytes:      50 * 1024 * 1024,
+		RetentionMaxAgeSeconds: 86400,
+		FlushIntervalMs:        1000,
+		FlushBytes:             64 * 1024,
+		FsyncMode:              "always",
+	}
+
+	leaderBroker := broker.NewBroker(leaderCfg)
+	followerBroker := broker.NewBroker(followerCfg)
+
+	_, _ = leaderBroker.Controller.CreateTopic("orders", 1, 2)
+	_, _ = followerBroker.Controller.CreateTopic("orders", 1, 2)
+	_, _ = leaderBroker.Controller.SetPartitionLeader("orders", 0, 0, []int{0, 1})
+	_, _ = followerBroker.Controller.SetPartitionLeader("orders", 0, 0, []int{0, 1})
+
+	leaderBroker.StartBackgroundRuntimes()
+	followerBroker.StartBackgroundRuntimes()
+	defer leaderBroker.StopBackgroundRuntimes()
+	defer followerBroker.StopBackgroundRuntimes()
+
+	leaderAddr, shutdownLeader := startTestBrokerServer(t, leaderBroker)
+	defer shutdownLeader()
+	followerAddr, shutdownFollower := startTestBrokerServer(t, followerBroker)
+	defer shutdownFollower()
+
+	_, _ = followerAddr, leaderAddr
+
+	resp, err := sendLineCommand(leaderAddr, "PRODUCE", "orders user-x:created acks=1")
+	if err != nil {
+		t.Fatalf("produce on leader failed: %v", err)
+	}
+	if !strings.Contains(resp, "|OK|partition=") {
+		t.Fatalf("unexpected produce response: %s", resp)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		msgs := followerBroker.Storage.Consume("orders", 0, 0)
+		if len(msgs) > 0 && msgs[0].Value == "created" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("replication did not apply to follower before deadline")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Simulate leader failure and verify follower promotion.
+	shutdownLeader()
+
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		s := followerBroker.Controller.Snapshot()
+		if topic, ok := s.Topics["orders"]; ok {
+			if topic.Partitions[0].LeaderID == 1 {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("follower was not promoted to leader after leader shutdown")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	resp, err = sendLineCommand(followerAddr, "PRODUCE", "orders user-y:paid acks=1")
+	if err != nil {
+		t.Fatalf("produce on promoted follower failed: %v", err)
+	}
+	if !strings.Contains(resp, "|OK|partition=0") {
+		t.Fatalf("expected produce success on promoted leader, got: %s", resp)
+	}
+}
+
 func startTestBrokerServer(t *testing.T, b *broker.Broker) (string, func()) {
 	t.Helper()
 

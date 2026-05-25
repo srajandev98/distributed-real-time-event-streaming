@@ -16,6 +16,18 @@ def _is_generation_mismatch(err: Exception) -> bool:
     return isinstance(err, FLUXProtocolError) and err.code == "GENERATION_MISMATCH"
 
 
+def _is_retryable_broker_error(err: Exception) -> bool:
+    if isinstance(err, FLUXProtocolError) and err.code == "NOT_LEADER":
+        return True
+    message = str(err)
+    return (
+        "connection closed" in message
+        or "Connection refused" in message
+        or "timed out" in message
+        or "socket hang up" in message
+    )
+
+
 def _with_retry(
     operation_name: str,
     fn: Callable[[], object],
@@ -317,10 +329,19 @@ class FLUXRuntime:
         host: str = "127.0.0.1",
         port: int = 9092,
         timeout_seconds: float = 5.0,
+        brokers: Optional[List[tuple[str, int]]] = None,
     ):
-        self._host = host
-        self._port = port
+        self._brokers = brokers if brokers is not None and len(brokers) > 0 else [(host, port)]
         self._timeout_seconds = timeout_seconds
+        self._endpoint_index = 0
+
+    def _next_client(self) -> FLUXClient:
+        host, port = self._brokers[self._endpoint_index]
+        return FLUXClient(host=host, port=port, timeout_seconds=self._timeout_seconds)
+
+    def _rotate_client(self) -> FLUXClient:
+        self._endpoint_index = (self._endpoint_index + 1) % len(self._brokers)
+        return self._next_client()
 
     def producer(
         self,
@@ -329,15 +350,38 @@ class FLUXRuntime:
         batch_size: int = 100,
         linger_ms: int = 0,
     ) -> FLUXProducer:
-        return FLUXProducer(
-            client=FLUXClient(
-                host=self._host, port=self._port, timeout_seconds=self._timeout_seconds
-            ),
-            max_retries=max_retries,
-            retry_backoff_ms=retry_backoff_ms,
-            batch_size=batch_size,
-            linger_ms=linger_ms,
-        )
+        client = self._next_client()
+
+        def wrapped_send(params: ProducerSendParams) -> None:
+            nonlocal client
+            producer = FLUXProducer(
+                client=client,
+                max_retries=max_retries,
+                retry_backoff_ms=retry_backoff_ms,
+                batch_size=batch_size,
+                linger_ms=linger_ms,
+            )
+            try:
+                producer.send(params)
+            except Exception as err:
+                if _is_retryable_broker_error(err):
+                    client = self._rotate_client()
+                    producer = FLUXProducer(
+                        client=client,
+                        max_retries=max_retries,
+                        retry_backoff_ms=retry_backoff_ms,
+                        batch_size=batch_size,
+                        linger_ms=linger_ms,
+                    )
+                    producer.send(params)
+                else:
+                    raise
+
+        class _ProducerWrapper:
+            def send(self, params: ProducerSendParams) -> None:
+                wrapped_send(params)
+
+        return _ProducerWrapper()  # type: ignore[return-value]
 
     def consumer(
         self,
@@ -355,9 +399,7 @@ class FLUXRuntime:
         on_crash: Optional[Callable[[Exception], None]] = None,
     ) -> FLUXConsumer:
         return FLUXConsumer(
-            client=FLUXClient(
-                host=self._host, port=self._port, timeout_seconds=self._timeout_seconds
-            ),
+            client=self._next_client(),
             group_id=group_id,
             consumer_id=consumer_id,
             assignor=assignor,
