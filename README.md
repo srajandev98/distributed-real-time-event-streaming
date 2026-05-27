@@ -12,6 +12,10 @@ This README explains how to run and use the broker.
 - consumer group join and partition assignment
 - offset commit and offset lookup
 - local persistence for messages and offsets
+- broker-to-broker replication (`BROKER_FETCH`, `BROKER_REPLICA_ACK`)
+- follower fetch/apply/ack replication loop
+- high watermark + ISR tracking with `acks=all`
+- leader/follower role transitions with failover election hooks
 
 ## Run Broker (Local)
 
@@ -54,6 +58,10 @@ Local replica mirror files may also appear:
 orders-2-replica-1-segment-000000.log
 orders-2-replica-2-segment-000000.log
 ```
+
+Note:
+- Older local mirror files may still exist for compatibility/testing.
+- Current runtime also supports broker-to-broker replication across separate broker processes.
 
 ## Configuration (Environment Variables)
 
@@ -175,6 +183,20 @@ async function main() {
 main().catch(console.error);
 ```
 
+High-level runtime with multi-broker failover:
+
+```ts
+import { FLUXRuntime } from '@flux/typescript-sdk';
+
+const runtime = new FLUXRuntime({
+  brokers: [
+    { host: '127.0.0.1', port: 9092 },
+    { host: '127.0.0.1', port: 9093 },
+    { host: '127.0.0.1', port: 9094 },
+  ],
+});
+```
+
 ## Basic Usage (Python)
 
 Install from local repo path:
@@ -208,6 +230,34 @@ producer.send(
     acks="1",
 )
 ```
+
+High-level runtime with multi-broker failover:
+
+```python
+from flux_sdk import FLUXRuntime
+
+runtime = FLUXRuntime(
+    brokers=[
+        ("127.0.0.1", 9092),
+        ("127.0.0.1", 9093),
+        ("127.0.0.1", 9094),
+    ]
+)
+```
+
+## Replication and Failover (Current)
+
+- Brokers exchange replication data via TCP admin protocol commands:
+  - `BROKER_FETCH`
+  - `BROKER_REPLICA_ACK`
+- Follower brokers run a background loop:
+  - fetch from leader
+  - apply to local log
+  - ack replicated offset back to leader
+- Leader tracks ISR and high watermark; `acks=all` waits for committed progress.
+- Broker runtime reconciles metadata/roles and can trigger leader election on repeated replication failures.
+
+This is active distributed runtime behavior, with continuing hardening planned in later phases.
 
 ## Admin Usage (Operator/Platform)
 
