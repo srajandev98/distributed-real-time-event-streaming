@@ -1,4 +1,5 @@
 import socketserver
+import socket
 import threading
 import unittest
 
@@ -84,6 +85,47 @@ class RuntimeFailoverTests(unittest.TestCase):
             self.assertTrue(produced_on_secondary["value"])
         finally:
             primary.stop()
+            secondary.stop()
+
+    def test_producer_rotates_broker_on_connection_refused(self):
+        produced_on_secondary = {"value": False}
+
+        def secondary_handler(wfile, correlation_id, command):
+            if command == "PRODUCE":
+                produced_on_secondary["value"] = True
+                wfile.write(f"V1|{correlation_id}|OK|partition=0 offset=1 hw=1\n".encode("utf-8"))
+            else:
+                wfile.write(f"V1|{correlation_id}|OK|\n".encode("utf-8"))
+            wfile.flush()
+
+        try:
+            secondary = _Server(secondary_handler)
+        except PermissionError as err:
+            self.skipTest(f"restricted sandbox socket bind: {err}")
+        secondary.start()
+        try:
+            # Reserve an ephemeral port then close it to create a refused target.
+            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            probe.bind(("127.0.0.1", 0))
+            refused_port = probe.getsockname()[1]
+            probe.close()
+
+            runtime = FLUXRuntime(
+                brokers=[
+                    ("127.0.0.1", refused_port),
+                    ("127.0.0.1", secondary.port),
+                ]
+            )
+            producer = runtime.producer(max_retries=2, retry_backoff_ms=10)
+            producer.send(
+                ProducerSendParams(
+                    topic="orders",
+                    messages=[ProducerMessage(key="user-2", value="paid")],
+                    acks="1",
+                )
+            )
+            self.assertTrue(produced_on_secondary["value"])
+        finally:
             secondary.stop()
 
 

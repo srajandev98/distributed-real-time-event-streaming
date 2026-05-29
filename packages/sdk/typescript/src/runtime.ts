@@ -110,17 +110,25 @@ export class FLUXRuntime {
     this.options = options;
   }
 
-  producer(options: FLUXProducerOptions = {}): FLUXProducer {
-    const endpoints =
-      this.options.brokers && this.options.brokers.length > 0
-        ? this.options.brokers
-        : [{ host: this.options.host ?? '127.0.0.1', port: this.options.port ?? 9092 }];
-    let endpointIndex = 0;
-    let client = new FLUXClient({
-      host: endpoints[endpointIndex].host,
-      port: endpoints[endpointIndex].port,
+  private resolveEndpoints(): Array<{ host: string; port: number }> {
+    if (this.options.brokers && this.options.brokers.length > 0) {
+      return this.options.brokers;
+    }
+    return [{ host: this.options.host ?? '127.0.0.1', port: this.options.port ?? 9092 }];
+  }
+
+  private createClient(endpoint: { host: string; port: number }): FLUXClient {
+    return new FLUXClient({
+      host: endpoint.host,
+      port: endpoint.port,
       timeoutMs: this.options.timeoutMs,
     });
+  }
+
+  producer(options: FLUXProducerOptions = {}): FLUXProducer {
+    const endpoints = this.resolveEndpoints();
+    let endpointIndex = 0;
+    let client = this.createClient(endpoints[endpointIndex]);
     const rotateClient = async (): Promise<void> => {
       endpointIndex = (endpointIndex + 1) % endpoints.length;
       try {
@@ -128,11 +136,7 @@ export class FLUXRuntime {
       } catch {
         // best effort
       }
-      client = new FLUXClient({
-        host: endpoints[endpointIndex].host,
-        port: endpoints[endpointIndex].port,
-        timeoutMs: this.options.timeoutMs,
-      });
+      client = this.createClient(endpoints[endpointIndex]);
     };
     const maxRetries = options.maxRetries ?? 3;
     const retryBackoffMs = options.retryBackoffMs ?? 250;
@@ -179,16 +183,9 @@ export class FLUXRuntime {
   }
 
   consumer(options: FLUXConsumerOptions): FLUXConsumer {
-    const endpoints =
-      this.options.brokers && this.options.brokers.length > 0
-        ? this.options.brokers
-        : [{ host: this.options.host ?? '127.0.0.1', port: this.options.port ?? 9092 }];
+    const endpoints = this.resolveEndpoints();
     let endpointIndex = 0;
-    let client = new FLUXClient({
-      host: endpoints[endpointIndex].host,
-      port: endpoints[endpointIndex].port,
-      timeoutMs: this.options.timeoutMs,
-    });
+    let client = this.createClient(endpoints[endpointIndex]);
     const rotateClient = async (): Promise<void> => {
       endpointIndex = (endpointIndex + 1) % endpoints.length;
       try {
@@ -196,11 +193,7 @@ export class FLUXRuntime {
       } catch {
         // best effort
       }
-      client = new FLUXClient({
-        host: endpoints[endpointIndex].host,
-        port: endpoints[endpointIndex].port,
-        timeoutMs: this.options.timeoutMs,
-      });
+      client = this.createClient(endpoints[endpointIndex]);
     };
     const assignor = options.assignor ?? 'round_robin';
     const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 2000;

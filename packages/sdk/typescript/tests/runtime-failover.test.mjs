@@ -70,6 +70,38 @@ async function run() {
     });
     assert.equal(producedOnSecondary, true);
     console.log('PASS runtime failover test');
+
+    // Connection-refused path: first broker is unreachable, second is healthy.
+    let refusedTarget;
+    const healthy = await startServer(({ socket, correlationId, command }) => {
+      if (command === 'PRODUCE') {
+        socket.write(`V1|${correlationId}|OK|partition=0 offset=1 hw=1\n`);
+        return;
+      }
+      socket.write(`V1|${correlationId}|OK|\n`);
+    });
+    try {
+      refusedTarget = net.createServer();
+      await new Promise((resolve) => refusedTarget.listen(0, '127.0.0.1', resolve));
+      const refusedPort = refusedTarget.address().port;
+      await new Promise((resolve) => refusedTarget.close(resolve));
+
+      const runtime2 = new FLUXRuntime({
+        brokers: [
+          { host: '127.0.0.1', port: refusedPort },
+          { host: '127.0.0.1', port: healthy.port },
+        ],
+      });
+      const producer2 = runtime2.producer({ maxRetries: 2, retryBackoffMs: 10 });
+      await producer2.send({
+        topic: 'orders',
+        messages: [{ key: 'user-2', value: 'paid' }],
+        acks: '1',
+      });
+      console.log('PASS runtime connection-refused failover test');
+    } finally {
+      await new Promise((resolve) => healthy.server.close(resolve));
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('operation not permitted') || msg.includes('EACCES')) {

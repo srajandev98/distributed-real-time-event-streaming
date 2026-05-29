@@ -222,10 +222,11 @@ This document is the execution roadmap for evolving `Flux` into a production-gra
 ## 9. Immediate Backlog (Next 2 Weeks)
 
 1. ~~Refactor storage into segmented logs.~~
-2. Add GitHub Actions CI with lint + race + tests.
-3. Introduce Prometheus metrics skeleton.
+2. Add GitHub Actions CI with lint + race + tests (including SDK test jobs).
+3. Introduce Prometheus metrics skeleton (replication lag, ISR size, failover counters).
 4. ~~Scaffold `internal/replication` with interfaces and integration test harness.~~
 5. ~~Add consumer-group generation ID and duplicate-member guard in coordinator.~~
+6. ~~SDK failover tests: rotation on `NOT_LEADER` and connection-refused path (TypeScript + Python).~~
 
 ## 10. Risks and Mitigations
 

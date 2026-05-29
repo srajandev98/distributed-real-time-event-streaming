@@ -4,6 +4,12 @@ Distributed Real-time Event Streaming is a TCP-based event streaming broker writ
 
 This README explains how to run and use the broker.
 
+## Current Status
+
+- Core distributed runtime is implemented (multi-broker replication + failover scaffolding).
+- High-level TypeScript and Python SDKs are available.
+- Project is still under active hardening toward production readiness.
+
 ## What the Broker Supports
 
 - produce messages to topics
@@ -38,6 +44,11 @@ Stop:
 ```bash
 docker compose down
 ```
+
+Multi-broker cluster endpoints (host):
+- broker-0: `localhost:9092`
+- broker-1: `localhost:9093`
+- broker-2: `localhost:9094`
 
 ## Data Files
 
