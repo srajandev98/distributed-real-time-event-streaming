@@ -149,6 +149,19 @@ cd core
 go test ./...
 ```
 
+Quick verification (full repo):
+
+```bash
+# core broker tests
+cd core && go test ./...
+
+# TypeScript SDK build + failover test harness
+cd ../packages/sdk/typescript && npm test
+
+# Python SDK failover tests
+cd ../python && PYTHONPATH=src python3 -m unittest discover -s tests -p "test_*.py"
+```
+
 ## SDKs
 
 - TypeScript SDK: `packages/sdk/typescript`

@@ -354,28 +354,24 @@ class FLUXRuntime:
 
         def wrapped_send(params: ProducerSendParams) -> None:
             nonlocal client
-            producer = FLUXProducer(
-                client=client,
-                max_retries=max_retries,
-                retry_backoff_ms=retry_backoff_ms,
-                batch_size=batch_size,
-                linger_ms=linger_ms,
-            )
-            try:
-                producer.send(params)
-            except Exception as err:
-                if _is_retryable_broker_error(err):
-                    client = self._rotate_client()
-                    producer = FLUXProducer(
-                        client=client,
-                        max_retries=max_retries,
-                        retry_backoff_ms=retry_backoff_ms,
-                        batch_size=batch_size,
-                        linger_ms=linger_ms,
-                    )
+            attempts = 0
+            max_endpoint_attempts = max(1, len(self._brokers))
+            while attempts < max_endpoint_attempts:
+                producer = FLUXProducer(
+                    client=client,
+                    max_retries=max_retries,
+                    retry_backoff_ms=retry_backoff_ms,
+                    batch_size=batch_size,
+                    linger_ms=linger_ms,
+                )
+                try:
                     producer.send(params)
-                else:
-                    raise
+                    return
+                except Exception as err:
+                    attempts += 1
+                    if not _is_retryable_broker_error(err) or attempts >= max_endpoint_attempts:
+                        raise
+                    client = self._rotate_client()
 
         class _ProducerWrapper:
             def send(self, params: ProducerSendParams) -> None:
